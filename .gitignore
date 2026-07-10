@@ -1,0 +1,106 @@
+# ==========================================
+# 操作系统与编辑器 (OS & Editor)
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==========================================
+# 环境变量与机密 (Environment & Secrets)
+# ==========================================
+.env
+.env.*.local
+.env.local
+.env.development
+.env.test
+.env.production
+*.pem
+*.key
+!*.example
+
+# ==========================================
+# Python & 后端 (FastAPI, Celery, SQLAlchemy)
+# ==========================================
+# 编译后的字节码
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+
+# 包管理 (Poetry/Pip)
+.poetry/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 测试与代码覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# 类型检查缓存
+.mypy_cache/
+.pyre/
+
+# Celery 运行时文件
+celerybeat-schedule
+celerybeat.pid
+*.pid
+
+# ==========================================
+# Node.js & 前端 (Next.js, React)
+# ==========================================
+# 依赖包
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js 构建输出
+frontend/.next/
+frontend/out/
+frontend/build/
+.swc/
+
+# 包管理器日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 静态检查缓存
+.eslintcache
+.stylelintcache
+.prettiercache
+
+# ==========================================
+# 基础设施、数据与日志 (Infra, Data & Logs)
+# ==========================================
+# 本地挂载的数据库和对象存储卷
+postgres_data/
+minio_data/
+data/
+db_data/
+
+# 日志文件
+logs/
+*.log
+
+# 爬虫/解析过程中的临时文件
+*.pdf
+*.csv
+tmp/
+temp/
