@@ -2,22 +2,23 @@
 name = "thinktank-monitor-backend"
 version = "0.1.0"
 description = "全球智库涉华研究追踪平台后端 API 与任务系统"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["ThinkTank Monitor Team <team@thinktank-monitor.org>"]
 readme = "README.md"
-packages = [{include = "app"}]
+packages = [{ include = "app" }]
 
 [tool.poetry.dependencies]
 python = "^3.12"
 # --- Web 框架与基础配置 ---
-fastapi = "^0.111.0"
-uvicorn = {extras = ["standard"], version = "^0.30.0"}
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.30.0" }
 pydantic = "^2.7.0"
-pydantic-settings = "^2.2.0"
+pydantic-settings = "^2.4.0"
 
 # --- 数据库与 ORM ---
 sqlalchemy = "^2.0.30"
 alembic = "^1.13.0"
-asyncpg = "^0.29.0"         # PostgreSQL 的高性能异步驱动
+psycopg = { extras = ["binary"], version = "^3.2.0" }
+asyncpg = "^0.29.0"         # PostgreSQL 高性能异步驱动
 pgvector = "^0.3.0"         # 向量检索扩展支持
 
 # --- 异步任务与缓存 ---
@@ -37,32 +38,38 @@ feedparser = "^6.0.11"      # 解析 RSS 订阅源
 # --- 文档解析与处理 ---
 pymupdf = "^1.24.0"         # 极速提取 PDF 文本和元数据
 pdfplumber = "^0.11.0"      # 擅长精准提取 PDF 中的表格
-# 注意：PaddleOCR 依赖较大且含 C++ 扩展，建议在 Dockerfile 中通过 pip 单独安装或单独构建解析服务
-# paddleocr = "^2.7.3" 
+# 注意：PaddleOCR 依赖较大且含 C++ 扩展，建议在 Dockerfile 中通过 pip 单独安装
+# paddleocr = "^2.7.3"
 
 # --- AI 与 大语言模型 ---
 langchain = "^0.2.0"
-langchain-openai = "^0.1.0" # 兼容 OpenAI 格式的各类大模型（含国产大模型）
+langchain-openai = "^0.1.0" # 兼容 OpenAI 格式的各类大模型
 tiktoken = "^0.7.0"         # Token 计算
 
+# --- 认证与安全 (补充) ---
+pyjwt = "^2.9.0"           # JWT 处理
+passlib = { extras = ["bcrypt"], version = "^1.7.4" }  # 密码哈希
+bcrypt = "<5.0.0"          # 配合 passlib 使用
+
 # --- 工具与日志 ---
-loguru = "^0.7.2"           # 现代化、优雅的日志记录库
+loguru = "^0.7.2"           # 现代化日志记录库
 python-dateutil = "^2.9.0"
+email-validator = "^2.3.0"
 
 
 [tool.poetry.group.dev.dependencies]
-# --- 开发与测试工具（生产环境不安装） ---
+# --- 开发与测试工具 ---
 pytest = "^8.2.0"
 pytest-asyncio = "^0.23.0"
-ruff = "^0.4.0"             # 极速的 Python Linter 和代码格式化工具（替代 Flake8 和 Black）
+ruff = "^0.6.0"             # 极速 Linter 和格式化工具
 mypy = "^1.10.0"            # 静态类型检查
 pre-commit = "^3.7.0"       # Git 提交前钩子
 
 
 # --- Ruff 代码格式化与检查配置 ---
 [tool.ruff]
-# 行长度限制（与项目保持一致）
-line-length = 120
+# 行长度限制
+line-length = 100
 # 目标 Python 版本
 target-version = "py312"
 # 排除目录
@@ -79,13 +86,13 @@ exclude = [
 
 [tool.ruff.lint]
 # 启用规则：
-# E: pycodestyle 错误, F: pyflakes, W: pycodestyle 警告, I: import 排序, UP: pyupgrade（语法现代化）
+# E: pycodestyle 错误, F: pyflakes, W: pycodestyle 警告, I: import 排序, UP: pyupgrade
 select = ["E", "F", "W", "I", "UP"]
-# 忽略规则（根据需要）
+# 忽略规则
 ignore = [
-    "E501",  # 行太长（由 line-length 控制）
+    "E501",  # 行太长由 line-length 控制
 ]
-# 允许未使用的 import（设为 false 则报错）
+# 允许未使用的 import
 allow-unused-imports = false
 
 [tool.ruff.format]
@@ -102,8 +109,15 @@ line-ending = "auto"
 # --- Mypy 类型检查配置 ---
 [tool.mypy]
 python_version = "3.12"
-strict = true               # 开启严格模式，保证代码质量
-ignore_missing_imports = true # 忽略部分第三方库缺少类型提示的警告
+strict = true
+ignore_missing_imports = true
+
+
+# --- Pytest 配置 ---
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,7 +1,7 @@
+version: '3.8'
+
 services:
-  # ==========================================
-  # 1. 数据库服务 (支持向量检索的 PostgreSQL)
-  # ==========================================
+  # 1. 数据库服务
   postgres:
     image: pgvector/pgvector:pg16
     container_name: thinktank-postgres
@@ -9,7 +9,7 @@ services:
     environment:
       POSTGRES_DB: thinktank_monitor
       POSTGRES_USER: thinktank
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thinktank_secure_pass_2026}
+      POSTGRES_PASSWORD: ruc202607
     ports:
       - "5432:5432"
     volumes:
@@ -22,9 +22,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ==========================================
-  # 2. 缓存与异步消息队列存储 (Redis)
-  # ==========================================
+  # 2. 缓存与队列
   redis:
     image: redis:7-alpine
     container_name: thinktank-redis
@@ -42,9 +40,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ==========================================
-  # 3. 对象存储 (MinIO - 存放原始PDF、译文及图表)
-  # ==========================================
+  # 3. 对象存储
   minio:
     image: minio/minio:latest
     container_name: thinktank-minio
@@ -52,10 +48,10 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_secret}
+      MINIO_ROOT_PASSWORD: ruc202607
     ports:
-      - "9000:9000" # API 端口
-      - "9001:9001" # 管理后台控制台端口
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio_data:/data
     networks:
@@ -66,9 +62,7 @@ services:
       timeout: 5s
       retries: 3
 
-  # ==========================================
-  # 4. 后端 Web API (FastAPI)
-  # ==========================================
+  # 4. 后端 Web API
   backend:
     build:
       context: ./backend
@@ -80,7 +74,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app # 方便本地开发热重载
+      - ./backend:/app
     networks:
       - thinktank-network
     depends_on:
@@ -92,9 +86,7 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-  # ==========================================
-  # 5. 异步任务执行器 (Celery Worker)
-  # ==========================================
+  # 5. 异步任务执行器
   celery-worker:
     build:
       context: ./backend
@@ -105,7 +97,6 @@ services:
       - .env
     volumes:
       - ./backend:/app
-      # 如果涉及大模型本地缓存，可挂载公共卷
     networks:
       - thinktank-network
     depends_on:
@@ -113,12 +104,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    # 启动时开启 info 级别日志，并设置并发数
     command: celery -A app.workers.celery_app worker --loglevel=INFO --concurrency=4
 
-  # ==========================================
-  # 6. 定时任务调度器 (Celery Beat)
-  # ==========================================
+  # 6. 定时任务调度器
   celery-beat:
     build:
       context: ./backend
@@ -134,11 +122,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     command: celery -A app.workers.celery_app beat --loglevel=INFO
 
-  # ==========================================
-  # 7. 前端用户界面 (Next.js)
-  # ==========================================
+  # 7. 前端用户界面
   frontend:
     build:
       context: ./frontend
@@ -149,7 +137,7 @@ services:
       - "3000:3000"
     volumes:
       - ./frontend:/app
-      - /app/node_modules # 避免本地 node_modules 覆盖容器内部依赖
+      - /app/node_modules
     environment:
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
     networks:
@@ -158,9 +146,6 @@ services:
       - backend
     command: pnpm dev
 
-# ==========================================
-# 基础设施：持久化卷与内网环境定义
-# ==========================================
 volumes:
   postgres_data:
     driver: local
