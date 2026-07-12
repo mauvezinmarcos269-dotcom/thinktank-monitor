@@ -17,14 +17,12 @@ Thumbs.db
 # 环境变量与机密 (Environment & Secrets)
 # ==========================================
 .env
-.env.*.local
-.env.local
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
+!.env.*.example
 *.pem
 *.key
-!*.example
+
 
 # ==========================================
 # Python & 后端 (FastAPI, Celery, SQLAlchemy)
@@ -104,3 +102,7 @@ logs/
 *.csv
 tmp/
 temp/
+# Secrets
+*.env
+*.env.*
+*.backup
