@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
@@ -7,7 +7,6 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 from app.models.user import RoleEnum
-
 
 password_context = CryptContext(
     schemes=["bcrypt"],
@@ -38,9 +37,8 @@ def create_access_token(
     role: 用户角色，便于前端显示和后端快速获取声明。
     exp: 过期时间。
     """
-    expire = datetime.now(timezone.utc) + (
-        expires_delta
-        or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(UTC) + (
+        expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
     payload: dict[str, Any] = {

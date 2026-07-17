@@ -92,8 +92,6 @@ select = ["E", "F", "W", "I", "UP"]
 ignore = [
     "E501",  # 行太长由 line-length 控制
 ]
-# 允许未使用的 import
-allow-unused-imports = false
 
 [tool.ruff.format]
 # 使用双引号

@@ -1,28 +1,30 @@
 FROM python:3.12-slim
 
-# 设置工作目录
 WORKDIR /app
 
-# 安装必要的系统库（如 OCR 和 PDF 处理所需）
+ENV PYTHONUNBUFFERED=1
+
+# 替换 Debian 12 (Bookworm) 官方源为阿里云源，避免国内网络超时报错
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
+
+# 安装必要的系统库（处理智库 PDF 报告及图片解析的核心依赖）
 RUN apt-get update && apt-get install -y \
-    libgl1 libglib2.0-0 \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 poetry
-RUN pip install --no-cache-dir poetry
+# 安装 poetry，并使用国内 PyPI 镜像源加速下载
+RUN pip install --no-cache-dir poetry -i https://mirrors.aliyun.com/pypi/simple/
 
-# 复制项目依赖文件
+# 复制依赖文件并进行安装
 COPY pyproject.toml poetry.lock ./
-
-# 将 Poetry 依赖导出为 requirements.txt 并安装（不在镜像内保留 poetry 虚拟环境，减小体积）
-RUN poetry export -f requirements.txt --output requirements.txt --without-hashes \
-    && pip install --no-cache-dir -r requirements.txt
-
-# 单独安装可能带来构建问题的 AI/OCR 库 (可选)
-# RUN pip install --no-cache-dir paddlepaddle paddleocr
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-root --no-interaction --no-ansi
 
 # 复制项目代码
-COPY ./app ./app
+COPY . .
+
+EXPOSE 8000
 
 # 启动命令
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
