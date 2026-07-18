@@ -32,7 +32,7 @@ celery_app.conf.update(
     # 定时任务配置
     beat_schedule={
         "daily-crawl": {
-            "task": "crawl.all_think_tanks",
+            "task": "crawl.all_sources",
             "schedule": crontab(hour=2, minute=0),
         }
     },
