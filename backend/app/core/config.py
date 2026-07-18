@@ -28,21 +28,11 @@ def parse_cors_origins(value: str | list[str]) -> list[str]:
         parsed_value = json.loads(value)
 
         if not isinstance(parsed_value, list):
-            raise ValueError(
-                "BACKEND_CORS_ORIGINS 的 JSON 配置必须是字符串数组。"
-            )
+            raise ValueError("BACKEND_CORS_ORIGINS 的 JSON 配置必须是字符串数组。")
 
-        return [
-            str(item).strip()
-            for item in parsed_value
-            if str(item).strip()
-        ]
+        return [str(item).strip() for item in parsed_value if str(item).strip()]
 
-    return [
-        item.strip()
-        for item in value.split(",")
-        if item.strip()
-    ]
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 CorsOrigins = Annotated[

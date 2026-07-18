@@ -1,0 +1,2 @@
+New-Item -ItemType Directory -Path ".\public" -Force | Out-Null
+New-Item -ItemType File -Path ".\public\.gitkeep" -Force | Out-Null
