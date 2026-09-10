@@ -46,7 +46,30 @@ async def list_countries(
 ):
     return await think_tank_service.get_countries(db)
 
-@router.get("/statistics", summary="获取机构和来源统计信息")
+
+@router.get(
+    "/missing-sources",
+    response_model=list[ThinkTankRead],
+    summary="查询尚未配置启用来源的机构",
+)
+async def list_think_tanks_missing_sources(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_user)],
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+):
+    return await think_tank_service.get_without_active_sources(
+        db,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/statistics",
+    response_model=dict[str, int],
+    summary="获取机构和来源统计信息"
+)
 async def get_institution_statistics(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, Depends(get_current_user)],

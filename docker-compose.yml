@@ -68,7 +68,15 @@ services:
     container_name: thinktank-backend
     restart: always
     env_file:
-      - .env
+      - ./backend/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_DEFAULT_QUEUE: celery
+      MINIO_ENDPOINT: minio:9000
+      TZ: Asia/Shanghai
     ports:
       - "8000:8000"
     volumes:
@@ -92,7 +100,15 @@ services:
     container_name: thinktank-celery-worker
     restart: always
     env_file:
-      - .env
+      - ./backend/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_DEFAULT_QUEUE: celery
+      MINIO_ENDPOINT: minio:9000
+      TZ: Asia/Shanghai
     volumes:
       - ./backend:/app
     networks:
@@ -102,7 +118,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: celery -A app.workers.celery_app worker --loglevel=INFO --concurrency=4
+    command: celery -A app.workers.celery_app worker --loglevel=INFO --concurrency=4 -Q celery
 
   # 6. 定时任务调度器
   celery-beat:
@@ -112,7 +128,15 @@ services:
     container_name: thinktank-celery-beat
     restart: always
     env_file:
-      - .env
+      - ./backend/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_DEFAULT_QUEUE: celery
+      MINIO_ENDPOINT: minio:9000
+      TZ: Asia/Shanghai
     volumes:
       - ./backend:/app
     networks:
@@ -122,7 +146,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: celery -A app.workers.celery_app beat --loglevel=INFO
+    command: celery -A app.workers.celery_app beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule
 
   # 7. 前端用户界面
   frontend:
@@ -130,7 +154,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8000
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
     container_name: thinktank-frontend
     restart: always
     ports:

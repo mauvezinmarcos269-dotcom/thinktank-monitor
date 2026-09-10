@@ -49,12 +49,14 @@ tiktoken = "^0.7.0"         # Token 计算
 # --- 认证与安全 (补充) ---
 pyjwt = "^2.9.0"           # JWT 处理
 passlib = { extras = ["bcrypt"], version = "^1.7.4" }  # 密码哈希
-bcrypt = "<5.0.0"          # 配合 passlib 使用
+bcrypt = "4.0.1"           
 
 # --- 工具与日志 ---
 loguru = "^0.7.2"           # 现代化日志记录库
 python-dateutil = "^2.9.0"
 email-validator = "^2.3.0"
+ftfy = "^6.3.1"
+python-docx = "^1.2.0"
 
 
 [tool.poetry.group.dev.dependencies]

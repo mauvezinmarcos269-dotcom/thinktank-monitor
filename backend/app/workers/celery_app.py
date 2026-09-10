@@ -6,19 +6,22 @@ from app.core.config import settings
 # 初始化 Celery 实例
 celery_app = Celery(
     "thinktank_monitor",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=settings.CELERY_BROKER_URL,
+    backend=settings.CELERY_RESULT_BACKEND,
     include=[
         "app.models",
         "app.workers.tasks",
         "app.workers.crawl_tasks",
+        "app.workers.report_tasks",
+        "app.workers.ai_tasks",
     ],
 )
 
 # Celery 全局配置
 celery_app.conf.update(
-    timezone="Asia/Shanghai",
-    enable_utc=False,
+    timezone="Asia/Shanghai",  # 明确设为东八区
+    enable_utc=False,          # 禁用纯 UTC 模式
+    task_default_queue=settings.CELERY_TASK_DEFAULT_QUEUE,
 
     # 序列化配置
     task_serializer="json",
@@ -33,7 +36,13 @@ celery_app.conf.update(
     beat_schedule={
         "daily-crawl": {
             "task": "crawl.all_sources",
-            "schedule": crontab(hour=2, minute=0),
+            "schedule": crontab(hour=18, minute=0),
+        },
+        # 新增：每 5 分钟轮询一次 pending 状态的报告投递给 AI
+        "auto-enqueue-ai-tasks": {
+            "task": "report.enqueue_ai_chunk_tasks",
+            "schedule": crontab(minute="*/5"),
+            "args": (10, 50),
         }
     },
 )

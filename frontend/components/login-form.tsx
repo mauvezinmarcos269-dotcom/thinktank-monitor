@@ -17,7 +17,6 @@ type ErrorResponse = {
 
 export function LoginForm() {
   const router = useRouter();
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -81,59 +80,64 @@ export function LoginForm() {
 
       saveLoginSession(loginData.access_token, currentUser);
 
-      router.replace('/dashboard');
-      router.refresh();
+      router.push('/dashboard');
     } catch (error) {
+      console.error('[LoginForm] 登录流程异常:', error);
       setErrorMessage(
         error instanceof Error ? error.message : '登录失败，请稍后重试。'
       );
-    } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <section>
-      <h1>ThinkTank Monitor</h1>
-      <p>登录全球智库涉华研究监测平台</p>
+    <main className="login-page">
+      <section className="login-panel">
+        <h1>ThinkTank Monitor</h1>
+        <p>登录全球智库涉华研究监测平台</p>
 
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="email">邮箱</label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="name@example.com"
-            required
-            disabled={isSubmitting}
-          />
-        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="form-field">
+            <label htmlFor="email">邮箱</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="name@example.com"
+              required
+              disabled={isSubmitting}
+            />
+          </div>
 
-        <div>
-          <label htmlFor="password">密码</label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="请输入密码"
-            required
-            disabled={isSubmitting}
-          />
-        </div>
+          <div className="form-field">
+            <label htmlFor="password">密码</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="请输入密码"
+              required
+              disabled={isSubmitting}
+            />
+          </div>
 
-        {errorMessage ? <p role="alert">{errorMessage}</p> : null}
+          {errorMessage ? (
+            <p className="message-error" role="alert">
+              {errorMessage}
+            </p>
+          ) : null}
 
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? '正在登录…' : '登录'}
-        </button>
-      </form>
-    </section>
+          <button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? '正在登录…' : '登录'}
+          </button>
+        </form>
+      </section>
+    </main>
   );
 }

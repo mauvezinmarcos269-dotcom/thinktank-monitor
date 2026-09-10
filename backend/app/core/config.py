@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     REDIS_URL: str
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+    CELERY_TASK_DEFAULT_QUEUE: str = "celery"
 
     MINIO_ROOT_USER: str
     MINIO_ROOT_PASSWORD: str
@@ -80,6 +81,13 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
+    LLM_CONNECT_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0)
+    LLM_READ_TIMEOUT_SECONDS: float = Field(default=300.0, gt=0)
+    LLM_WRITE_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
+    LLM_POOL_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0)
+    AI_TRANSLATION_CHUNK_LENGTH: int = Field(default=5000, ge=1000, le=20000)
+    AI_ANALYSIS_CHUNK_LENGTH: int = Field(default=16000, ge=4000, le=40000)
+    AI_TRANSLATION_MAX_TOKENS: int = Field(default=9000, ge=1000, le=20000)
 
     CRAWLER_USER_AGENT: str = "ThinkTankMonitor/0.1"
     CRAWLER_REQUEST_TIMEOUT: int = Field(

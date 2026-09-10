@@ -2,13 +2,12 @@ import asyncio
 from logging.config import fileConfig
 from typing import Any
 
-from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from app.core.config import settings
 from app.models import Base
-
 
 # Alembic Config 对象，来自 alembic.ini。
 config = context.config

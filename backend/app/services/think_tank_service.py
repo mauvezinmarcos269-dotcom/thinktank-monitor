@@ -72,25 +72,78 @@ class ThinkTankService:
         result = await db.execute(statement)
         return list(result.scalars().all())
 
+    async def get_without_active_sources(
+        self,
+        db: AsyncSession,
+        *,
+        skip: int = 0,
+        limit: int = 200,
+    ) -> list[ThinkTank]:
+        active_source_exists = (
+            select(Source.id)
+            .where(
+                Source.think_tank_id == ThinkTank.id,
+                Source.is_active.is_(True),
+            )
+            .exists()
+        )
+
+        statement = (
+            select(ThinkTank)
+            .where(
+                ThinkTank.is_active.is_(True),
+                ~active_source_exists,
+            )
+            .order_by(
+                ThinkTank.is_key.desc(),
+                ThinkTank.country.asc(),
+                ThinkTank.name.asc(),
+            )
+            .offset(skip)
+            .limit(limit)
+        )
+
+        result = await db.execute(statement)
+        return list(result.scalars().all())
+
     async def get_statistics(self, db: AsyncSession) -> dict[str, int]:
         total_think_tanks = await db.scalar(select(func.count()).select_from(ThinkTank))
         active_think_tanks = await db.scalar(select(func.count()).select_from(ThinkTank).where(ThinkTank.is_active.is_(True)))
         key_think_tanks = await db.scalar(select(func.count()).select_from(ThinkTank).where(ThinkTank.is_key.is_(True)))
         total_sources = await db.scalar(select(func.count()).select_from(Source))
         active_sources = await db.scalar(select(func.count()).select_from(Source).where(Source.is_active.is_(True)))
+        missing_active_sources = await db.scalar(
+            select(func.count())
+            .select_from(ThinkTank)
+            .where(
+                ThinkTank.is_active.is_(True),
+                ~(
+                    select(Source.id)
+                    .where(
+                        Source.think_tank_id == ThinkTank.id,
+                        Source.is_active.is_(True),
+                    )
+                    .exists()
+                ),
+            )
+        )
 
         return {
+            "think_tanks": total_think_tanks or 0,
+            "sources": total_sources or 0,
             "total_think_tanks": total_think_tanks or 0,
             "active_think_tanks": active_think_tanks or 0,
             "key_think_tanks": key_think_tanks or 0,
             "total_sources": total_sources or 0,
             "active_sources": active_sources or 0,
+            "missing_active_sources": missing_active_sources or 0,
         }
 
     async def create(self, db: AsyncSession, payload: ThinkTankCreate) -> ThinkTank:
         await self.ensure_valid_parent(db, parent_id=payload.parent_id)
 
         think_tank = ThinkTank(
+            key=payload.key.strip(),
             name=payload.name.strip(),
             name_en=payload.name_en.strip() if payload.name_en else None,
             country=payload.country.strip(),

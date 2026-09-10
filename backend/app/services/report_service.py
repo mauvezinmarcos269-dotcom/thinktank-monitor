@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.report import Report
@@ -20,12 +20,20 @@ async def create_report(
 
 async def get_reports(
     db: AsyncSession,
+    *,
+    skip: int = 0,
+    limit: int = 50,
 ) -> list[Report]:
     result = await db.execute(
-        select(Report).order_by(Report.id.desc())
+        select(Report).order_by(Report.id.desc()).offset(skip).limit(limit)
     )
 
     return list(result.scalars().all())
+
+
+async def count_reports(db: AsyncSession) -> int:
+    total = await db.scalar(select(func.count()).select_from(Report))
+    return total or 0
 
 
 async def get_report(
