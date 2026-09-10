@@ -32,12 +32,23 @@ from app.services.crawler.report_document_service import (
     fetch_report_document,
 )
 from app.services.crawler.rss_parser import parse_rss_articles
+from app.services.crawler.us_core_parser import (
+    CORE_SITE_CONFIGS,
+    CoreSiteConfig,
+    parse_core_site_reports,
+)
 from app.services.notification_service import notification_service
 
 BROOKINGS_DISCOVERY_URLS = (
     "https://www.brookings.edu/",
     "https://www.brookings.edu/regions/asia-the-pacific/china/",
 )
+
+CORE_US_SITE_CONFIG_BY_HOST: dict[str, CoreSiteConfig] = {
+    host: config
+    for config in CORE_SITE_CONFIGS.values()
+    for host in config.hosts
+}
 
 
 def normalize_url(url: str) -> str | None:
@@ -139,6 +150,40 @@ async def _fetch_source_articles(
                 for article in parse_brookings_reports(
                     resource.content,
                     resource.final_url,
+                ):
+                    url = str(article["url"])
+                    articles_by_url.setdefault(
+                        url,
+                        article,
+                    )
+
+            return list(articles_by_url.values())
+
+        core_site_config = CORE_US_SITE_CONFIG_BY_HOST.get(
+            hostname
+        )
+
+        if core_site_config is not None:
+            articles_by_url: dict[str, dict[str, object]] = {}
+
+            discovery_urls = (
+                source.url,
+                *(
+                    url
+                    for url in core_site_config.discovery_urls
+                    if url != source.url
+                ),
+            )
+
+            for discovery_url in discovery_urls:
+                resource = await fetch_resource(
+                    discovery_url
+                )
+
+                for article in parse_core_site_reports(
+                    resource.content,
+                    resource.final_url,
+                    core_site_config,
                 ):
                     url = str(article["url"])
                     articles_by_url.setdefault(

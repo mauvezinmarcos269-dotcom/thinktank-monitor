@@ -36,6 +36,12 @@
 
 ## P1：第一批网站解析器
 
+本阶段已新增第一批核心美国网站解析器的通用解析框架，并接入：
+Brookings、RAND、Carnegie Endowment、CFR、PIIE。解析器会优先保留
+report、research、publication、working paper 等报告型候选，并排除
+podcast、blog、event、commentary、news 等轻量内容；最终仍以 PDF/正文提取
+和 20 页门槛作为硬筛选。
+
 ### 1. Brookings
 
 - 来源 ID：1
@@ -48,7 +54,7 @@
 
 - 来源 ID：7
 - URL：`https://www.rand.org/`
-- 当前问题：缺少 website 专用解析器，RSS 地址无效。
+- 当前处理：已接入第一批核心美国网站解析器；RSS 地址已改为 `https://www.rand.org/pubs/new.xml`。
 - 优先原因：高质量长报告密集，安全、防务、科技、亚太、中国议题匹配度高。
 - 建议范围：优先解析 research reports、publications、PDF 下载页。
 
@@ -56,14 +62,14 @@
 
 - 来源 ID：8
 - URL：`https://carnegieendowment.org/`
-- 当前问题：缺少 website 专用解析器。
+- 当前处理：已接入第一批核心美国网站解析器；通用研究页需带涉华信号，涉华上下文页可保留报告型候选。
 - 优先原因：外交政策、地缘政治、中国与周边议题较强，适合作为涉华趋势监测来源。
 
 ### 4. Council on Foreign Relations
 
 - 来源 ID：3
 - URL：`https://www.cfr.org/`
-- 当前问题：缺少 website 专用解析器。
+- 当前处理：已接入第一批核心美国网站解析器；优先解析 `/report/`、`/paper/` 类型页面。
 - 优先原因：对美国外交政策话语影响大，涉华议题频繁。
 - 注意事项：CFR 页面类型较多，需避免把短评论、新闻问答全部当作长报告。
 
@@ -71,7 +77,7 @@
 
 - 来源 ID：11
 - URL：`https://www.piie.com/`
-- 当前问题：缺少 website 专用解析器。
+- 当前处理：已接入第一批核心美国网站解析器；优先解析 `/research/publications/` 类型页面。
 - 优先原因：中美经贸、产业政策、金融与全球经济治理相关性强。
 
 ## P2：第二批美国网站解析器
@@ -209,10 +215,10 @@
 建议后续站点开发顺序：
 
 1. Brookings RSS 容错（已完成基础增强）
-2. Brookings website 解析器
-3. RAND website 解析器
-4. Carnegie website 解析器
-5. CFR website 解析器
-6. PIIE website 解析器
+2. Brookings website 解析器（已完成基础解析器）
+3. RAND website 解析器（已完成基础解析器）
+4. Carnegie website 解析器（已完成基础解析器）
+5. CFR website 解析器（已完成基础解析器）
+6. PIIE website 解析器（已完成基础解析器）
 7. Heritage / AEI / Hoover website 解析器
 8. Chatham House / IISS / ECFR / Bruegel website 解析器
