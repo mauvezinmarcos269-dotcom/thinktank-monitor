@@ -9,6 +9,10 @@ from bs4 import BeautifulSoup
 
 XML_DEFINED_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
 NAMED_ENTITY_RE = re.compile(r"&([A-Za-z][A-Za-z0-9]+);")
+BARE_AMPERSAND_RE = re.compile(
+    r"&(?!(?:#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);)"
+)
+INVALID_XML_CHAR_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
 
 def _to_plain_text(value: object) -> str:
@@ -73,9 +77,26 @@ def _replace_undefined_xml_entities(feed_text: str) -> str:
         if name in XML_DEFINED_ENTITIES:
             return match.group(0)
 
-        return html5.get(f"{name};", "")
+        replacement = html5.get(f"{name};")
+        if replacement is not None:
+            return replacement
+
+        return f"&amp;{name};"
 
     return NAMED_ENTITY_RE.sub(replace, feed_text)
+
+
+def _clean_feed_text_for_xml(feed_text: str) -> str:
+    """
+    Normalize common RSS/XML defects before retrying feedparser.
+
+    Real-world feeds occasionally contain HTML-only named entities, bare
+    ampersands in links, or invisible control characters. Those are invalid XML
+    but safe to repair before parsing.
+    """
+    cleaned = INVALID_XML_CHAR_RE.sub("", feed_text)
+    cleaned = _replace_undefined_xml_entities(cleaned)
+    return BARE_AMPERSAND_RE.sub("&amp;", cleaned)
 
 
 def _parse_feed_with_entity_fallback(feed_content: bytes) -> Any:
@@ -85,16 +106,19 @@ def _parse_feed_with_entity_fallback(feed_content: bytes) -> Any:
 
     feed = feedparser.parse(feed_content)
 
-    if not (feed.bozo and not feed.entries):
+    if not feed.bozo and feed.entries:
         return feed
 
     feed_text = _decode_feed_content(feed_content)
-    cleaned_feed = _replace_undefined_xml_entities(feed_text)
+    cleaned_feed = _clean_feed_text_for_xml(feed_text)
     if cleaned_feed == feed_text:
         return feed
 
     retry_feed = feedparser.parse(cleaned_feed)
-    if retry_feed.entries or not retry_feed.bozo:
+    if retry_feed.entries and (
+        not retry_feed.bozo
+        or len(retry_feed.entries) >= len(feed.entries)
+    ):
         return retry_feed
 
     return feed

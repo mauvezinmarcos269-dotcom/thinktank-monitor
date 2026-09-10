@@ -79,7 +79,7 @@ SEED_THINK_TANKS: list[dict[str, Any]] = [
         "name_en": "RAND Corporation",
         "country": "美国",
         "website": "https://www.rand.org/",
-        "rss": "https://www.rand.org/rss.xml",
+        "rss": "https://www.rand.org/pubs/new.xml",
         "organization_type": OrganizationTypeEnum.think_tank,
         "is_key": True,
         "description": "美国政策研究与战略分析机构。",

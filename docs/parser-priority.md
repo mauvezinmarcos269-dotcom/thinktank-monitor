@@ -23,15 +23,15 @@
 - 来源 ID：52
 - URL：`https://www.brookings.edu/feed/`
 - 当前问题：RSS 解析失败，错误为 `undefined entity`。
-- 建议动作：增强 RSS 解析容错，对 HTML/XML 实体异常做清洗或降级处理。
+- 当前处理：已增强 RSS 解析容错，对 HTML/XML 实体、裸 `&` 和非法 XML 控制字符做清洗后重试。
 - 原因：Brookings 属于最高优先级来源，RSS 如果修好，可能比网站解析器更快产生稳定结果。
 
 ### 2. RAND RSS
 
 - 来源 ID：54
-- URL：`https://www.rand.org/rss.xml`
-- 当前问题：返回 404。
-- 建议动作：核验 RAND 当前可用 RSS 或改用网站解析器。
+- 旧 URL：`https://www.rand.org/rss.xml`
+- 当前可用 Research RSS：`https://www.rand.org/pubs/new.xml`
+- 当前处理：已将种子数据中的 RAND RSS 地址更新为 Research RSS。
 - 原因：RAND 报告篇幅、政策影响力和涉华安全议题相关性都很高。
 
 ## P1：第一批网站解析器
@@ -208,12 +208,11 @@
 
 建议后续站点开发顺序：
 
-1. Brookings RSS 容错
+1. Brookings RSS 容错（已完成基础增强）
 2. Brookings website 解析器
-3. RAND RSS 核验或 RAND website 解析器
+3. RAND website 解析器
 4. Carnegie website 解析器
 5. CFR website 解析器
 6. PIIE website 解析器
 7. Heritage / AEI / Hoover website 解析器
 8. Chatham House / IISS / ECFR / Bruegel website 解析器
-

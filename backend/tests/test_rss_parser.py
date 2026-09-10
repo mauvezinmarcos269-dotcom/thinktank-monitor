@@ -41,3 +41,60 @@ def test_parse_rss_articles_rejects_html_page_response() -> None:
 
     with pytest.raises(ValueError, match="来源返回 HTML 页面"):
         parse_rss_articles(feed_content, "https://example.org/feed/")
+
+
+def test_parse_rss_articles_escapes_bare_ampersands_in_links() -> None:
+    feed_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example</title>
+    <item>
+      <title>China trade report</title>
+      <link>https://example.org/report?topic=china&format=pdf</link>
+      <description>Long report</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+    articles = parse_rss_articles(feed_content, "https://example.org/feed/")
+
+    assert articles[0]["url"] == "https://example.org/report?topic=china&format=pdf"
+
+
+def test_parse_rss_articles_preserves_unknown_named_entities_as_text() -> None:
+    feed_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example</title>
+    <item>
+      <title>China &madeup; research</title>
+      <link>/research/china</link>
+      <description>Contains a custom entity.</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+    articles = parse_rss_articles(feed_content, "https://example.org/feed/")
+
+    assert articles[0]["title"] == "China &madeup research"
+
+
+def test_parse_rss_articles_removes_invalid_xml_control_characters() -> None:
+    feed_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example</title>
+    <item>
+      <title>China\x08 strategy report</title>
+      <link>/research/china-strategy</link>
+      <description>Report text</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+    articles = parse_rss_articles(feed_content, "https://example.org/feed/")
+
+    assert articles[0]["title"] == "China strategy report"
