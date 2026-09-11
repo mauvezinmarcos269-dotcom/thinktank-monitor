@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.sources import router as sources_router
@@ -71,6 +72,12 @@ app.include_router(
     notifications_router,
     prefix=f"{settings.API_V1_STR}/notifications",
     tags=["Notifications"],
+)
+
+app.include_router(
+    dashboard_router,
+    prefix=f"{settings.API_V1_STR}/dashboard",
+    tags=["Dashboard"],
 )
 
 # ---------------------------------------------------------------------------

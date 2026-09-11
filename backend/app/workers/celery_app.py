@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.workers.crawl_tasks",
         "app.workers.report_tasks",
         "app.workers.ai_tasks",
+        "app.workers.notification_tasks",
     ],
 )
 
@@ -43,6 +44,10 @@ celery_app.conf.update(
             "task": "report.enqueue_ai_chunk_tasks",
             "schedule": crontab(minute="*/5"),
             "args": (10, 50),
-        }
+        },
+        "daily-notification-summary": {
+            "task": "notification.daily_summary",
+            "schedule": crontab(hour=19, minute=0),
+        },
     },
 )

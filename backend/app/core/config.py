@@ -95,6 +95,19 @@ class Settings(BaseSettings):
         gt=0,
     )
 
+    NOTIFICATION_DAILY_SUMMARY_ENABLED: bool = True
+    NOTIFICATION_SUMMARY_LOOKBACK_HOURS: int = Field(default=24, ge=1, le=168)
+    NOTIFICATION_EMAIL_ENABLED: bool = False
+    NOTIFICATION_EMAIL_TO: str = ""
+    NOTIFICATION_SMTP_HOST: str = ""
+    NOTIFICATION_SMTP_PORT: int = Field(default=587, gt=0, le=65535)
+    NOTIFICATION_SMTP_USERNAME: str = ""
+    NOTIFICATION_SMTP_PASSWORD: str = ""
+    NOTIFICATION_SMTP_FROM: str = ""
+    NOTIFICATION_SMTP_USE_TLS: bool = True
+    NOTIFICATION_WECOM_WEBHOOK_URL: str = ""
+    NOTIFICATION_FEISHU_WEBHOOK_URL: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
