@@ -1,64 +1,57 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from app.models.base import Base
 
 
 class CrawlRun(Base):
+    """一次来源抓取运行记录。"""
 
-    __tablename__="crawl_runs"
+    __tablename__ = "crawl_runs"
 
-
-    id=Column(
+    id: Mapped[int] = mapped_column(
         Integer,
-        primary_key=True
+        primary_key=True,
     )
 
-
-    source_id=Column(
-        Integer,
-        ForeignKey(
-            "sources.id"
-        ),
-        nullable=False
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("sources.id"),
+        nullable=False,
     )
 
-
-    status=Column(
+    status: Mapped[str] = mapped_column(
         String(30),
-        default="pending"
+        default="pending",
     )
 
-
-    found_count=Column(
+    found_count: Mapped[int] = mapped_column(
         Integer,
-        default=0
+        default=0,
     )
 
-
-    saved_count=Column(
+    saved_count: Mapped[int] = mapped_column(
         Integer,
-        default=0
+        default=0,
     )
 
-
-    error=Column(
-        Text
+    error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
-
-    started_at=Column(
-        DateTime
-    )
-
-
-    finished_at=Column(
-        DateTime
-    )
-
-
-    created_at=Column(
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime,
-        default=datetime.utcnow
+        nullable=True,
+    )
+
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
     )

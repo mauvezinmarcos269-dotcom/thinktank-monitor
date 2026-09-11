@@ -9,7 +9,7 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 - 对报告进行去重、归档和全文保存
 - 调用大语言模型生成翻译和分析评论
 - 支持按照标题、来源、发布时间和分析状态检索报告
-- 为教师和管理员提供统一的监测仪表盘
+- 为教师和管理员提供统一的监测仪表盘、站内通知和定时摘要
 
 ## 技术栈
 
@@ -23,12 +23,15 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 - Celery
 - MinIO
 - JWT
+- Alembic
+- PyMuPDF / pdfplumber
 
 ### 前端
 
 - Next.js
 - React
 - TypeScript
+- ESLint
 
 ## 项目结构
 
@@ -40,9 +43,11 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 │   │   ├── models/
 │   │   ├── schemas/
 │   │   ├── services/
+│   │   ├── workers/
+│   │   ├── scripts/
 │   │   └── main.py
 │   ├── alembic/
-│   ├── requirements.txt
+│   ├── pyproject.toml
 │   └── README.md
 ├── frontend/
 │   ├── app/
@@ -51,8 +56,11 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 │   └── package.json
 ├── docker-compose.yml
 ├── Makefile
+├── docs/
 └── README.md
 ```
+
+更多开发约定见 [docs/development.md](docs/development.md)。
 
 ## 本地联调
 
@@ -111,6 +119,25 @@ cd frontend
 npm run build:local
 ```
 
+## 常用检查命令
+
+后端：
+
+```powershell
+cd backend
+poetry run ruff check .
+poetry run pytest
+```
+
+前端：
+
+```powershell
+cd frontend
+npm run typecheck
+npm run lint
+npm run build
+```
+
 ## Docker 运行
 
 Docker 环境使用容器网络中的 Redis 地址：
@@ -137,3 +164,20 @@ docker compose up -d --build backend celery-worker celery-beat frontend
 - `BACKEND_CORS_ORIGINS` 只填写实际前端域名。
 - 后端、Celery worker、Celery beat 和前端容器默认以非 root 用户运行。
 - 前端依赖升级前先运行 `npm audit`，确认是否需要执行 `npm audit fix` 并重新验证构建。
+
+### 通知与摘要配置
+
+系统默认启用每日站内摘要，Celery beat 每天 19:00 调度
+`notification.daily_summary`。如需外发通知，可在后端环境变量中配置：
+
+- `NOTIFICATION_EMAIL_ENABLED`
+- `NOTIFICATION_EMAIL_TO`
+- `NOTIFICATION_SMTP_HOST`
+- `NOTIFICATION_SMTP_PORT`
+- `NOTIFICATION_SMTP_USERNAME`
+- `NOTIFICATION_SMTP_PASSWORD`
+- `NOTIFICATION_SMTP_FROM`
+- `NOTIFICATION_WECOM_WEBHOOK_URL`
+- `NOTIFICATION_FEISHU_WEBHOOK_URL`
+
+未配置邮件或 webhook 时，系统只生成站内通知，不影响抓取和 AI 处理。

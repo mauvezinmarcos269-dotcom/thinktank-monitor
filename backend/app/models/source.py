@@ -130,14 +130,13 @@ class Source(Base):
     )
 
     think_tank: Mapped["ThinkTank"] = relationship(
-    "ThinkTank",
-    back_populates="sources",
-)
-
+        "ThinkTank",
+        back_populates="sources",
+    )
 
     reports: Mapped[list["Report"]] = relationship(
-    "Report",
-    back_populates="source",
-    cascade="all, delete-orphan",
-    passive_deletes=True,
-)
+        "Report",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
