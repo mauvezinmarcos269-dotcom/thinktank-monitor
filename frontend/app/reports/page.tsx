@@ -28,22 +28,15 @@ import {
   reportAIStatusLabels,
   reportReviewStatusLabels,
 } from '@/lib/status';
-import { AIProgressPanel } from './ai-progress-panel';
 import { ReportBatchActions } from './report-batch-actions';
-import { ReportActionBar } from './report-action-bar';
-import { ReportContentViewer } from './report-content-viewer';
-import { ReportDetailHeader } from './report-detail-header';
+import { ReportDetailArticle } from './report-detail-article';
 import { ReportFilterBar } from './report-filter-bar';
 import { ReportList } from './report-list';
-import { ReportMetadataGrid } from './report-metadata-grid';
-import { ReportOutcomeSummary } from './report-outcome-summary';
 import {
   formatDateTime,
   getDocumentType,
   PAGE_SIZE,
 } from './report-page-utils';
-import { ReportReadingBrief } from './report-reading-brief';
-import { ReviewHistoryPanel } from './review-history-panel';
 import { useReportActions } from './use-report-actions';
 import { useReportDetail } from './use-report-detail';
 import { useReportFilters } from './use-report-filters';
@@ -481,114 +474,46 @@ function ReportsPageContent() {
           )}
 
           {selected && selectedDocumentType && !loadingDetail && (
-            <article className="report-detail">
-              <ReportDetailHeader
-                report={selected}
-                documentType={selectedDocumentType}
-                source={selectedSource ?? null}
-                thinkTank={selectedThinkTank ?? null}
-              />
-
-              <ReportReadingBrief
-                report={selected}
-                onViewSelect={setActiveView}
-              />
-
-              <ReportOutcomeSummary
-                report={selected}
-                activeView={activeView}
-                copyingTarget={copyingTarget}
-                exportingReport={exportingReport}
-                exportingDocx={exportingDocx}
-                onViewSelect={setActiveView}
-                onCopyCommentary={() => handleCopyReportText('commentary')}
-                onCopyTranslation={() => handleCopyReportText('translation')}
-                onExportMarkdown={handleExportReport}
-                onExportDocx={handleExportDocx}
-              />
-
-              {selected.crawl_error && (
-                <p className="message-error">
-                  抓取错误：{selected.crawl_error}
-                </p>
-              )}
-
-              <ReportContentViewer
-                report={selected}
-                activeView={activeView}
-                copyingTarget={copyingTarget}
-                onActiveViewChange={setActiveView}
-                onCopyCurrent={() => handleCopyReportText('current')}
-              />
-
-              <section className="secondary-detail-group">
-                <details
-                  className="secondary-details"
-                  open={searchParams.get('focus') === 'review'}
-                >
-                  <summary>
-                    <span>文档信息、复核与导出操作</span>
-                    <small>{adminDetailsSummary}</small>
-                  </summary>
-                  <ReportMetadataGrid
-                    report={selected}
-                    documentType={selectedDocumentType}
-                    source={selectedSource ?? null}
-                    thinkTank={selectedThinkTank ?? null}
-                    canReview={canRetryAI}
-                    updatingReview={updatingReview}
-                    reviewNoteDraft={reviewNoteDraft}
-                    highlightReviewSection={highlightReviewSection}
-                    reviewSectionRef={reviewSectionRef}
-                    onReviewStatusChange={handleReviewStatusChange}
-                    onReviewNoteChange={setReviewNoteDraft}
-                    onReviewNoteSave={handleReviewNoteSave}
-                  />
-
-                  <ReportActionBar
-                    report={selected}
-                    canFetchContent={canFetchContent}
-                    canRetryAI={canRetryAI}
-                    submittingFetch={submittingFetch}
-                    submittingAIReportId={submittingAIReportId}
-                    exportingReport={exportingReport}
-                    exportingDocx={exportingDocx}
-                    copyingTarget={copyingTarget}
-                    aiActionLabel={aiActionLabel}
-                    onFetchContent={handleFetchContent}
-                    onRetryAI={handleRetryAI}
-                    onExportMarkdown={handleExportReport}
-                    onExportDocx={handleExportDocx}
-                    onCopyCommentary={() => handleCopyReportText('commentary')}
-                    onCopyTranslation={() => handleCopyReportText('translation')}
-                  />
-                </details>
-
-                <details className="secondary-details">
-                  <summary>
-                    <span>复核历史</span>
-                    <small>{reviewHistorySummary}</small>
-                  </summary>
-                  <ReviewHistoryPanel
-                    loading={loadingReviewEvents}
-                    errorMessage={reviewEventsError}
-                    events={reviewEvents}
-                  />
-                </details>
-
-                <details className="secondary-details">
-                  <summary>
-                    <span>AI 分块进度</span>
-                    <small>{aiProgressSummary}</small>
-                  </summary>
-                  <AIProgressPanel
-                    loading={loadingProgress}
-                    errorMessage={progressError}
-                    progress={aiProgress}
-                  />
-                </details>
-              </section>
-            </article>
+            <ReportDetailArticle
+              report={selected}
+              documentType={selectedDocumentType}
+              source={selectedSource ?? null}
+              thinkTank={selectedThinkTank ?? null}
+              activeView={activeView}
+              copyingTarget={copyingTarget}
+              exportingReport={exportingReport}
+              exportingDocx={exportingDocx}
+              canFetchContent={canFetchContent}
+              canRetryAI={canRetryAI}
+              submittingFetch={submittingFetch}
+              submittingAIReportId={submittingAIReportId}
+              aiActionLabel={aiActionLabel}
+              updatingReview={updatingReview}
+              reviewNoteDraft={reviewNoteDraft}
+              highlightReviewSection={highlightReviewSection}
+              reviewSectionRef={reviewSectionRef}
+              adminDetailsSummary={adminDetailsSummary}
+              reviewHistorySummary={reviewHistorySummary}
+              aiProgressSummary={aiProgressSummary}
+              loadingReviewEvents={loadingReviewEvents}
+              reviewEventsError={reviewEventsError}
+              reviewEvents={reviewEvents}
+              loadingProgress={loadingProgress}
+              progressError={progressError}
+              aiProgress={aiProgress}
+              openReviewDetails={searchParams.get('focus') === 'review'}
+              onViewSelect={setActiveView}
+              onCopyCommentary={() => handleCopyReportText('commentary')}
+              onCopyTranslation={() => handleCopyReportText('translation')}
+              onCopyCurrent={() => handleCopyReportText('current')}
+              onExportMarkdown={handleExportReport}
+              onExportDocx={handleExportDocx}
+              onReviewStatusChange={handleReviewStatusChange}
+              onReviewNoteChange={setReviewNoteDraft}
+              onReviewNoteSave={handleReviewNoteSave}
+              onFetchContent={handleFetchContent}
+              onRetryAI={handleRetryAI}
+            />
           )}
 
           {!selected && !loadingDetail && !detailError && (
