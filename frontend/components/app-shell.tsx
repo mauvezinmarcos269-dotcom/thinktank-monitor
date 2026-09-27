@@ -119,6 +119,22 @@ export function AppShell({ children }: AppShellProps) {
           <span className="brand-subtitle">全球智库涉华研究监测平台</span>
         </div>
 
+        <nav className="top-nav" aria-label="主导航">
+          {navigationItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="nav-link"
+              aria-current={pathname === item.href ? 'page' : undefined}
+            >
+              {item.label}
+              {item.href === '/notifications' && unreadCount > 0
+                ? ` (${unreadCount})`
+                : ''}
+            </Link>
+          ))}
+        </nav>
+
         <div className="userbar">
           <span>{currentUser.email}</span>
           <span className="badge">
@@ -131,27 +147,6 @@ export function AppShell({ children }: AppShellProps) {
       </header>
 
       <div className="layout">
-        <aside className="sidebar">
-          <nav aria-label="主导航">
-            <ul>
-              {navigationItems.map((item) => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className="nav-link"
-                    aria-current={pathname === item.href ? 'page' : undefined}
-                  >
-                    {item.label}
-                    {item.href === '/notifications' && unreadCount > 0
-                      ? ` (${unreadCount})`
-                      : ''}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </aside>
-
         <main className="main-content">{children}</main>
       </div>
     </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { AppShell } from '@/components/app-shell';
 import {
@@ -21,6 +21,15 @@ import {
   type SourceHealthSummary,
   type ThinkTank,
 } from '@/lib/institution';
+import {
+  crawlRunStatusLabels,
+  priorityTierLabels,
+  regionFocusLabels,
+  type CrawlRunStatus,
+} from '@/lib/status';
+import { CandidateDetail, type CandidateFilters } from './candidate-detail';
+import { SourceCreateForm } from './source-create-form';
+import { SourceHealthList } from './source-health-list';
 
 const sourceTypeOptions: Array<{
   value: SourceCreateInput['source_type'];
@@ -53,30 +62,31 @@ const healthBadgeClasses: Record<SourceHealth['health_status'], string> = {
   disabled: 'badge',
 };
 
-const crawlRunLabels: Record<string, string> = {
-  pending: '等待中',
-  running: '抓取中',
-  success: '成功',
-  failed: '失败',
+const rolloutStageLabels: Record<string, string> = {
+  pilot_crawl: '试运行',
+  discovery_only: '仅发现',
+  blocked: '阻塞',
+  standard_review: '待复核',
 };
 
-const crawlRunBadgeClasses: Record<string, string> = {
+const rolloutStageBadgeClasses: Record<string, string> = {
+  pilot_crawl: 'badge badge-success',
+  discovery_only: 'badge badge-warning',
+  blocked: 'badge badge-danger',
+  standard_review: 'badge',
+};
+
+const documentPolicyLabels: Record<string, string> = {
+  pdf_20_page_required: '20页PDF',
+  web_article_allowed: '网页长文',
+  source_access_blocked: '入口不可达',
+};
+
+const crawlRunBadgeClasses: Record<CrawlRunStatus, string> = {
   pending: 'badge',
   running: 'badge badge-warning',
   success: 'badge badge-success',
   failed: 'badge badge-danger',
-};
-
-const candidateLabels: Record<string, string> = {
-  discovered: '已发现',
-  skipped: '已跳过',
-  saved: '已入库',
-};
-
-const candidateBadgeClasses: Record<string, string> = {
-  discovered: 'badge',
-  skipped: 'badge badge-warning',
-  saved: 'badge badge-success',
 };
 
 const candidateReasonOptions = [
@@ -91,11 +101,6 @@ const candidateReasonOptions = [
 
 const candidatePageSize = 50;
 
-type CandidateFilters = {
-  status: string;
-  reason: string;
-};
-
 function formatDateTime(value: string | null): string {
   if (!value) {
     return '暂无';
@@ -103,35 +108,6 @@ function formatDateTime(value: string | null): string {
 
   return new Date(value).toLocaleString('zh-CN', {
     hour12: false,
-  });
-}
-
-function buildLoadedCandidateReasonOptions(candidates: CrawlCandidate[]): string[] {
-  const reasons = new Set<string>();
-
-  candidates.forEach((candidate) => {
-    if (candidate.skip_reason_label) {
-      reasons.add(candidate.skip_reason_label);
-    }
-  });
-
-  return [...reasons].sort((left, right) => left.localeCompare(right, 'zh-CN'));
-}
-
-function filterCandidates(
-  candidates: CrawlCandidate[],
-  filters: CandidateFilters
-): CrawlCandidate[] {
-  return candidates.filter((candidate) => {
-    if (filters.status && candidate.status !== filters.status) {
-      return false;
-    }
-
-    if (filters.reason && candidate.skip_reason_label !== filters.reason) {
-      return false;
-    }
-
-    return true;
   });
 }
 
@@ -161,6 +137,56 @@ function sortSourceHealth(items: SourceHealth[]): SourceHealth[] {
   return [...items].sort((left, right) => {
     return weight[left.health_status] - weight[right.health_status];
   });
+}
+
+function getLatestRun(source: SourceHealth) {
+  return source.recent_crawl_runs[0] ?? null;
+}
+
+function getSaveRate(run: SourceHealth['recent_crawl_runs'][number]): number {
+  if (run.found_count <= 0) {
+    return 0;
+  }
+
+  return Math.round((run.saved_count / run.found_count) * 100);
+}
+
+function getSourceReviewReason(source: SourceHealth): string | null {
+  const latestRun = getLatestRun(source);
+
+  if (source.rollout_stage === 'blocked') {
+    return '来源入口阻塞';
+  }
+
+  if (source.rollout_stage === 'discovery_only') {
+    return '仅发现待确认';
+  }
+
+  if (source.rollout_stage === 'standard_review') {
+    return '待小样本复核';
+  }
+
+  if (!source.think_tank_is_verified) {
+    return '机构信息待校对';
+  }
+
+  if (source.health_status === 'failed') {
+    return '最近抓取失败';
+  }
+
+  if (source.health_status === 'never') {
+    return '尚未试抓';
+  }
+
+  if (latestRun && latestRun.found_count > 0 && latestRun.saved_count === 0) {
+    return '有候选但未入库';
+  }
+
+  if (latestRun && latestRun.status === 'running') {
+    return '抓取仍在运行';
+  }
+
+  return null;
 }
 
 export default function SettingsPage() {
@@ -209,6 +235,19 @@ export default function SettingsPage() {
       ])
     );
   }, [thinkTanks]);
+
+  const reviewQueue = useMemo(() => {
+    return sourceHealth
+      .map((source) => ({
+        source,
+        reason: getSourceReviewReason(source),
+      }))
+      .filter(
+        (item): item is { source: SourceHealth; reason: string } =>
+          item.reason !== null
+      )
+      .slice(0, 8);
+  }, [sourceHealth]);
 
   async function loadSettings() {
     setLoading(true);
@@ -498,175 +537,21 @@ export default function SettingsPage() {
       status: '',
       reason: '',
     };
-    const loadedReasonOptions = buildLoadedCandidateReasonOptions(candidates);
-    const filteredCandidates = filterCandidates(candidates, filters);
-
-    if (candidateLoadingRunId === crawlRunId) {
-      return <p className="muted">正在加载候选明细……</p>;
-    }
-
-    if (candidates.length === 0) {
-      return (
-        <p className="muted">这次抓取暂无候选明细。历史运行不会自动回填。</p>
-      );
-    }
 
     return (
-      <>
-        <div className="candidate-summary">
-          <span className="badge">全部 {statistics?.total ?? totalCandidates}</span>
-          {statistics?.by_status.map((item) => (
-            <span
-              key={item.code ?? item.label}
-              className={candidateBadgeClasses[item.code ?? ''] ?? 'badge'}
-            >
-              {item.label} {item.count}
-            </span>
-          ))}
-        </div>
-
-        {statistics?.by_skip_reason.length ? (
-          <div className="candidate-reason-summary">
-            {statistics.by_skip_reason.map((item) => (
-              <span key={item.code ?? item.label} className="badge">
-                {item.label} {item.count}
-              </span>
-            ))}
-          </div>
-        ) : loadedReasonOptions.length > 0 ? (
-          <div className="candidate-reason-summary">
-            {loadedReasonOptions.map((reason) => (
-              <span key={reason} className="badge">
-                {reason}{' '}
-                {
-                  candidates.filter(
-                    (candidate) => candidate.skip_reason_label === reason
-                  ).length
-                }
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="candidate-filters">
-          <label>
-            状态
-            <select
-              value={filters.status}
-              onChange={(event) =>
-                updateCandidateFilter(crawlRunId, 'status', event.target.value)
-              }
-            >
-              <option value="">全部状态</option>
-              {Object.entries(candidateLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            跳过原因
-            <select
-              value={filters.reason}
-              onChange={(event) =>
-                updateCandidateFilter(crawlRunId, 'reason', event.target.value)
-              }
-              disabled={filters.status !== '' && filters.status !== 'skipped'}
-            >
-              <option value="">全部原因</option>
-              {candidateReasonOptions.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <span className="muted">
-            当前筛选共 {totalCandidates} 条；已加载 {candidates.length} 条；当前显示{' '}
-            {filteredCandidates.length} 条
-          </span>
-
-          <button
-            type="button"
-            onClick={() => handleExportCandidates(crawlRunId)}
-            disabled={candidateExportingRunId === crawlRunId}
-          >
-            {candidateExportingRunId === crawlRunId
-              ? '导出中……'
-              : '导出 CSV'}
-          </button>
-        </div>
-
-        {filteredCandidates.length === 0 ? (
-          <p className="muted">当前筛选条件下暂无候选。</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>标题</th>
-                <th>状态</th>
-                <th>跳过原因</th>
-                <th>页数</th>
-                <th>涉华</th>
-                <th>链接</th>
-                <th>说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCandidates.map((candidate) => (
-                <tr key={candidate.id}>
-                  <td className="candidate-title">
-                    {candidate.title ?? '无标题'}
-                  </td>
-                  <td>
-                    <span
-                      className={
-                        candidateBadgeClasses[candidate.status] ?? 'badge'
-                      }
-                    >
-                      {candidateLabels[candidate.status] ?? candidate.status}
-                    </span>
-                  </td>
-                  <td>{candidate.skip_reason_label ?? '无'}</td>
-                  <td>{candidate.page_count ?? '暂无'}</td>
-                  <td>
-                    {candidate.is_china_related === null
-                      ? '未判断'
-                      : candidate.is_china_related
-                        ? '是'
-                        : '否'}
-                  </td>
-                  <td>
-                    <a href={candidate.url} target="_blank" rel="noreferrer">
-                      打开
-                    </a>
-                  </td>
-                  <td className="candidate-note">
-                    {candidate.error ?? candidate.relevance_reason ?? '无'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {candidates.length < totalCandidates ? (
-          <div className="candidate-load-more">
-            <button
-              type="button"
-              onClick={() => handleLoadMoreCandidates(crawlRunId)}
-              disabled={candidateLoadingRunId === crawlRunId}
-            >
-              {candidateLoadingRunId === crawlRunId
-                ? '加载中……'
-                : `加载更多（剩余 ${totalCandidates - candidates.length} 条）`}
-            </button>
-          </div>
-        ) : null}
-      </>
+      <CandidateDetail
+        crawlRunId={crawlRunId}
+        candidates={candidates}
+        totalCandidates={totalCandidates}
+        statistics={statistics}
+        filters={filters}
+        loading={candidateLoadingRunId === crawlRunId}
+        exporting={candidateExportingRunId === crawlRunId}
+        candidateReasonOptions={candidateReasonOptions}
+        onFilterChange={updateCandidateFilter}
+        onExportCandidates={handleExportCandidates}
+        onLoadMoreCandidates={handleLoadMoreCandidates}
+      />
     );
   }
 
@@ -674,8 +559,23 @@ export default function SettingsPage() {
     <AppShell>
       <div className="page-header">
         <h1>系统设置</h1>
-        <p>维护智库来源、抓取频率和手动采集任务。</p>
+        <p>维护监测来源、查看抓取质量，并处理需要人工确认的来源。</p>
       </div>
+
+      <section className="settings-workbench-intro" aria-label="来源治理流程">
+        <div>
+          <strong>1. 覆盖重点机构</strong>
+          <span>先补齐 P0/P1 智库来源，保证美国核心机构稳定监测。</span>
+        </div>
+        <div>
+          <strong>2. 验收候选质量</strong>
+          <span>查看候选报告、跳过原因和保存率，判断来源是否可放行。</span>
+        </div>
+        <div>
+          <strong>3. 小批量试运行</strong>
+          <span>只让通过复核的来源进入自动入库，异常来源先停留在人工确认。</span>
+        </div>
+      </section>
 
       {loading && <p>正在加载系统配置……</p>}
       {errorMessage && <p className="message-error">{errorMessage}</p>}
@@ -683,7 +583,12 @@ export default function SettingsPage() {
 
       {stats && (
         <section className="panel">
-          <h2>来源配置概览</h2>
+          <div className="section-heading">
+            <div>
+              <h2>来源配置概览</h2>
+              <p>用于判断监测网络是否覆盖了重点智库和机构。</p>
+            </div>
+          </div>
 
           <ul className="stats-grid">
             <li className="stat-card">
@@ -712,7 +617,12 @@ export default function SettingsPage() {
 
       {sourceHealthSummary && (
         <section className="panel">
-          <h2>来源健康概览</h2>
+          <div className="section-heading">
+            <div>
+              <h2>来源健康概览</h2>
+              <p>优先处理失败、未抓取和需关注来源，减少漏报和噪声。</p>
+            </div>
+          </div>
 
           <ul className="stats-grid">
             <li className="stat-card">
@@ -750,98 +660,93 @@ export default function SettingsPage() {
       )}
 
       <section className="panel">
-        <h2>添加来源</h2>
-
-        <form className="form-grid" onSubmit={handleCreateSource}>
-          <div className="form-field">
-            <label htmlFor="think-tank-id">机构</label>
-            <select
-              id="think-tank-id"
-              value={selectedThinkTankId}
-              onChange={(event) => setSelectedThinkTankId(event.target.value)}
-              disabled={submittingSource}
-              required
-            >
-              <option value="">请选择机构</option>
-              {thinkTanks.map((thinkTank) => (
-                <option key={thinkTank.id} value={thinkTank.id}>
-                  {thinkTank.name} / {thinkTank.country}
-                </option>
-              ))}
-            </select>
+        <div className="section-heading">
+          <div>
+            <h2>候选验收重点</h2>
+            <p>这些来源需要先人工看候选质量，再决定是否进入自动入库。</p>
           </div>
+        </div>
 
-          <div className="form-field">
-            <label htmlFor="source-type">来源类型</label>
-            <select
-              id="source-type"
-              value={sourceType}
-              onChange={(event) =>
-                setSourceType(
-                  event.target.value as SourceCreateInput['source_type']
-                )
-              }
-              disabled={submittingSource}
-            >
-              {sourceTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        {reviewQueue.length === 0 && !loading ? (
+          <p>当前没有需要优先人工复核的来源。</p>
+        ) : (
+          <ul className="review-queue">
+            {reviewQueue.map(({ source, reason }) => {
+              const latestRun = getLatestRun(source);
 
-          <div className="form-field">
-            <label htmlFor="source-url">URL</label>
-            <input
-              id="source-url"
-              type="url"
-              value={sourceUrl}
-              onChange={(event) => setSourceUrl(event.target.value)}
-              placeholder="https://example.org/feed/"
-              disabled={submittingSource}
-              required
-            />
-          </div>
-
-          <div className="form-field">
-            <label htmlFor="crawl-frequency">抓取频率（分钟）</label>
-            <input
-              id="crawl-frequency"
-              type="number"
-              min={5}
-              max={43200}
-              value={crawlFrequencyMinutes}
-              onChange={(event) =>
-                setCrawlFrequencyMinutes(Number(event.target.value))
-              }
-              disabled={submittingSource}
-            />
-          </div>
-
-          <div className="form-field">
-            <label htmlFor="crawl-after-create">
-              <input
-                id="crawl-after-create"
-                type="checkbox"
-                checked={crawlAfterCreate}
-                onChange={(event) =>
-                  setCrawlAfterCreate(event.target.checked)
-                }
-                disabled={submittingSource}
-              />
-              添加后立即试抓
-            </label>
-          </div>
-
-          <button type="submit" disabled={submittingSource}>
-            {submittingSource ? '正在提交……' : '添加来源'}
-          </button>
-        </form>
+              return (
+                <li key={source.id}>
+                  <div>
+                    <strong>{source.think_tank_name}</strong>
+                    <span className="muted">
+                      {' '}
+                      / {priorityTierLabels[source.think_tank_priority_tier]} /{' '}
+                      {regionFocusLabels[source.think_tank_region_focus]}
+                    </span>
+                  </div>
+                  <span className={healthBadgeClasses[source.health_status]}>
+                    {reason}
+                  </span>
+                  <dl>
+                    <div>
+                      <dt>最近发现</dt>
+                      <dd>{latestRun?.found_count ?? 0}</dd>
+                    </div>
+                    <div>
+                      <dt>最近入库</dt>
+                      <dd>{latestRun?.saved_count ?? 0}</dd>
+                    </div>
+                    <div>
+                      <dt>保存率</dt>
+                      <dd>
+                        {latestRun ? `${getSaveRate(latestRun)}%` : '暂无'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>最近抓取</dt>
+                      <dd>{formatDateTime(source.last_crawled_at)}</dd>
+                    </div>
+                  </dl>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       <section className="panel">
-        <h2>待配置来源机构</h2>
+        <div className="section-heading">
+          <div>
+            <h2>添加来源</h2>
+            <p>新增 RSS 或官网列表页后，可立即试抓并观察候选结果。</p>
+          </div>
+        </div>
+
+        <SourceCreateForm
+          thinkTanks={thinkTanks}
+          selectedThinkTankId={selectedThinkTankId}
+          sourceType={sourceType}
+          sourceUrl={sourceUrl}
+          crawlFrequencyMinutes={crawlFrequencyMinutes}
+          crawlAfterCreate={crawlAfterCreate}
+          submittingSource={submittingSource}
+          sourceTypeOptions={sourceTypeOptions}
+          onSubmit={handleCreateSource}
+          onThinkTankChange={setSelectedThinkTankId}
+          onSourceTypeChange={setSourceType}
+          onSourceUrlChange={setSourceUrl}
+          onCrawlFrequencyChange={setCrawlFrequencyMinutes}
+          onCrawlAfterCreateChange={setCrawlAfterCreate}
+        />
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>待配置来源机构</h2>
+            <p>这些机构已在库中，但还没有启用的自动监测入口。</p>
+          </div>
+        </div>
 
         {missingSources.length === 0 && !loading ? (
           <p>所有启用机构都已有 active source。</p>
@@ -853,6 +758,10 @@ export default function SettingsPage() {
                 {thinkTank.name_en ? ` / ${thinkTank.name_en}` : ''}
                 {' - '}
                 {thinkTank.country}
+                {' - '}
+                {priorityTierLabels[thinkTank.priority_tier]}
+                {' - '}
+                {thinkTank.is_verified ? '已校对' : '待校对'}
               </li>
             ))}
           </ul>
@@ -860,161 +769,38 @@ export default function SettingsPage() {
       </section>
 
       <section className="panel">
-        <h2>来源健康与手动重试</h2>
-
-        <div className="toolbar">
+        <div className="section-heading">
+          <div>
+            <h2>来源健康与手动重试</h2>
+            <p>查看每个来源的准入策略、最近抓取质量和候选报告明细。</p>
+          </div>
           <button type="button" onClick={loadSettings} disabled={loading}>
             {loading ? '刷新中……' : '刷新状态'}
           </button>
         </div>
 
-        {sourceHealth.length === 0 && !loading ? (
-          <p>暂无来源。</p>
-        ) : (
-          <ul className="source-health-list">
-            {sourceHealth.map((source) => (
-              <li key={source.id} className="source-health-item">
-                <div className="source-health-main">
-                  <div>
-                    <strong>{source.think_tank_name}</strong>
-                    <span className="muted"> / {source.think_tank_country}</span>
-                  </div>
-                  <a href={source.url} target="_blank" rel="noreferrer">
-                    {source.url}
-                  </a>
-                  <p>{source.health_reason}</p>
-                </div>
-
-                <dl className="source-health-meta">
-                  <div>
-                    <dt>健康状态</dt>
-                    <dd>
-                      <span className={healthBadgeClasses[source.health_status]}>
-                        {healthLabels[source.health_status]}
-                      </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>来源类型</dt>
-                    <dd>{source.source_type}</dd>
-                  </div>
-                  <div>
-                    <dt>最近抓取</dt>
-                    <dd>{formatDateTime(source.last_crawled_at)}</dd>
-                  </div>
-                  <div>
-                    <dt>最近入库报告</dt>
-                    <dd>{formatDateTime(source.latest_report_created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt>报告数</dt>
-                    <dd>{source.report_count}</dd>
-                  </div>
-                  <div>
-                    <dt>频率</dt>
-                    <dd>{source.crawl_frequency_minutes} 分钟</dd>
-                  </div>
-                  <div>
-                    <dt>问题类型</dt>
-                    <dd>
-                      <span className="badge">{source.diagnosis_label}</span>
-                    </dd>
-                  </div>
-                </dl>
-
-                <p className="source-advice">{source.diagnosis_advice}</p>
-
-                {source.last_error ? (
-                  <p className="source-error">{source.last_error}</p>
-                ) : null}
-
-                <div className="crawl-run-history">
-                  <h3>最近抓取记录</h3>
-                  {source.recent_crawl_runs.length === 0 ? (
-                    <p className="muted">暂无抓取运行记录。</p>
-                  ) : (
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>开始时间</th>
-                            <th>状态</th>
-                            <th>发现</th>
-                            <th>入库</th>
-                            <th>耗时</th>
-                            <th>质量/错误摘要</th>
-                            <th>候选</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {source.recent_crawl_runs.map((run) => (
-                            <Fragment key={run.id}>
-                              <tr>
-                                <td>{formatDateTime(run.started_at)}</td>
-                                <td>
-                                  <span
-                                    className={
-                                      crawlRunBadgeClasses[run.status] ??
-                                      'badge'
-                                    }
-                                  >
-                                    {crawlRunLabels[run.status] ?? run.status}
-                                  </span>
-                                </td>
-                                <td>{run.found_count}</td>
-                                <td>{run.saved_count}</td>
-                                <td>{formatDuration(run.duration_seconds)}</td>
-                                <td className="crawl-run-error">
-                                  {run.error ?? '无'}
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleCandidates(run.id)}
-                                    disabled={candidateLoadingRunId === run.id}
-                                  >
-                                    {candidateLoadingRunId === run.id
-                                      ? '加载中……'
-                                      : expandedRunId === run.id
-                                        ? '收起'
-                                        : '查看候选'}
-                                  </button>
-                                </td>
-                              </tr>
-                              {expandedRunId === run.id ? (
-                                <tr>
-                                  <td colSpan={7}>
-                                    <div className="candidate-detail">
-                                      {renderCandidateDetail(run.id)}
-                                    </div>
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </Fragment>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleTriggerCrawl(source.id)}
-                  disabled={
-                    crawlingSourceId === source.id ||
-                    !source.is_active ||
-                    !crawlableSourceTypes.has(
-                      source.source_type as SourceCreateInput['source_type']
-                    )
-                  }
-                >
-                  {crawlingSourceId === source.id ? '提交中……' : '手动重试'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <SourceHealthList
+          sources={sourceHealth}
+          loading={loading}
+          crawlingSourceId={crawlingSourceId}
+          expandedRunId={expandedRunId}
+          candidateLoadingRunId={candidateLoadingRunId}
+          crawlableSourceTypes={crawlableSourceTypes}
+          healthLabels={healthLabels}
+          healthBadgeClasses={healthBadgeClasses}
+          rolloutStageLabels={rolloutStageLabels}
+          rolloutStageBadgeClasses={rolloutStageBadgeClasses}
+          documentPolicyLabels={documentPolicyLabels}
+          crawlRunBadgeClasses={crawlRunBadgeClasses}
+          onTriggerCrawl={handleTriggerCrawl}
+          onToggleCandidates={handleToggleCandidates}
+          renderCandidateDetail={renderCandidateDetail}
+          getSourceReviewReason={getSourceReviewReason}
+          getLatestRun={getLatestRun}
+          getSaveRate={getSaveRate}
+          formatDateTime={formatDateTime}
+          formatDuration={formatDuration}
+        />
       </section>
     </AppShell>
   );

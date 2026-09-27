@@ -1,6 +1,12 @@
 ﻿'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { AppShell } from '@/components/app-shell';
@@ -9,196 +15,266 @@ import {
   type CurrentUser,
 } from '@/lib/auth';
 import {
-  downloadReportDocxExport,
-  downloadReportExport,
-  fetchAIProgress,
-  fetchReport,
+  fetchSources,
+  fetchThinkTanks,
+  type Source,
+  type ThinkTank,
+} from '@/lib/institution';
+import {
   fetchReports,
-  retryReportAI,
-  triggerFetchContent,
-  type AIProgress,
   type Report,
 } from '@/lib/report';
-
-type ReportView = 'content' | 'translation' | 'summary' | 'commentary';
-
-const reportViewKeys: ReportView[] = [
-  'content',
-  'translation',
-  'summary',
-  'commentary',
-];
-
-const reportViews: Array<{
-  key: ReportView;
-  label: string;
-  emptyText: string;
-}> = [
-  {
-    key: 'content',
-    label: '原文正文',
-    emptyText: '暂无正文，请先抓取正文。',
-  },
-  {
-    key: 'translation',
-    label: '全文翻译',
-    emptyText: '暂无全文翻译，等待 AI 处理完成。',
-  },
-  {
-    key: 'summary',
-    label: '观点摘要',
-    emptyText: '暂无观点摘要，等待 AI 处理完成。',
-  },
-  {
-    key: 'commentary',
-    label: '分析评论',
-    emptyText: '暂无分析评论，等待 AI 处理完成。',
-  },
-];
-
-const PAGE_SIZE = 20;
-
-const crawlStatusLabels: Record<string, string> = {
-  pending: '待抓取',
-  running: '抓取中',
-  success: '已抓取',
-  failed: '抓取失败',
-};
-
-const aiStatusLabels: Record<string, string> = {
-  pending: '待处理',
-  running: 'AI 处理中',
-  processing: 'AI 处理中',
-  success: 'AI 已完成',
-  failed: 'AI 失败',
-  skipped: '已跳过',
-  finalize_queued: '等待生成终稿',
-  finalizing: '正在生成终稿',
-};
-
-const chunkTypeLabels: Record<string, string> = {
-  translation: '全文翻译',
-  analysis: '分析笔记',
-};
-
-const chunkStatusLabels: Record<string, string> = {
-  pending: '待处理',
-  queued: '已入队',
-  processing: '处理中',
-  success: '成功',
-  failed: '失败',
-};
-
-function getInitialView(value: string | null): ReportView {
-  if (value && reportViewKeys.includes(value as ReportView)) {
-    return value as ReportView;
-  }
-
-  return 'content';
-}
-
-function formatDateTime(value: string | null): string {
-  if (!value) {
-    return '未知';
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString();
-}
-
-function countTextChars(value: string | null): number {
-  return value?.trim().length ?? 0;
-}
-
-function getDocumentType(report: Report): {
-  label: string;
-  className: string;
-  isPdf: boolean;
-} {
-  const isPdf = Boolean(report.pdf_url || report.page_count);
-
-  return {
-    label: isPdf ? 'PDF 报告' : '网页长文',
-    className: isPdf ? 'badge badge-success' : 'badge badge-info',
-    isPdf,
-  };
-}
+import {
+  reportAIStatusLabels,
+  reportReviewStatusLabels,
+} from '@/lib/status';
+import { AIProgressPanel } from './ai-progress-panel';
+import { ReportBatchActions } from './report-batch-actions';
+import { ReportActionBar } from './report-action-bar';
+import { ReportContentViewer } from './report-content-viewer';
+import { ReportDetailHeader } from './report-detail-header';
+import { ReportFilterBar } from './report-filter-bar';
+import { ReportList } from './report-list';
+import { ReportMetadataGrid } from './report-metadata-grid';
+import { ReportOutcomeSummary } from './report-outcome-summary';
+import {
+  formatDateTime,
+  getDocumentType,
+  PAGE_SIZE,
+} from './report-page-utils';
+import { ReviewHistoryPanel } from './review-history-panel';
+import { useReportActions } from './use-report-actions';
+import { useReportDetail } from './use-report-detail';
+import { useReportFilters } from './use-report-filters';
 
 function ReportsPageContent() {
   const searchParams = useSearchParams();
+  const reviewSectionRef = useRef<HTMLDivElement | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
-  const [selected, setSelected] = useState<Report | null>(null);
-  const [aiProgress, setAIProgress] = useState<AIProgress | null>(null);
-  const [activeView, setActiveView] = useState<ReportView>('content');
-  const [page, setPage] = useState(1);
+  const [selectedReportIds, setSelectedReportIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [thinkTanks, setThinkTanks] = useState<ThinkTank[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
   const [totalReports, setTotalReports] = useState(0);
 
   const [listError, setListError] = useState<string | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [progressError, setProgressError] = useState<string | null>(null);
   const [taskMessage, setTaskMessage] = useState<string | null>(null);
 
   const [loadingList, setLoadingList] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(false);
-  const [submittingFetch, setSubmittingFetch] = useState(false);
-  const [submittingAI, setSubmittingAI] = useState(false);
-  const [exportingReport, setExportingReport] = useState(false);
-  const [exportingDocx, setExportingDocx] = useState(false);
+  const [highlightReviewSection, setHighlightReviewSection] = useState(false);
 
 
   const [currentUser, setCurrentUser] =
     useState<CurrentUser | null>(null);
+  const {
+    selected,
+    setSelected,
+    aiProgress,
+    reviewEvents,
+    activeView,
+    setActiveView,
+    reviewNoteDraft,
+    setReviewNoteDraft,
+    detailError,
+    setDetailError,
+    progressError,
+    reviewEventsError,
+    loadingDetail,
+    loadingProgress,
+    loadingReviewEvents,
+    submittingFetch,
+    submittingAIReportId,
+    loadReviewEvents,
+    handleSelect,
+    handleFetchContent,
+    submitRetryAI,
+    handleRetryAI,
+    resetReportListState,
+  } = useReportDetail({
+    setReports,
+    setSelectedReportIds,
+    setTaskMessage,
+  });
+  const {
+    page,
+    setPage,
+    reviewStatusFilter,
+    aiStatusFilter,
+    contentKindFilter,
+    deliverableStatusFilter,
+    searchDraft,
+    keywordFilter,
+    thinkTankFilter,
+    sourceFilter,
+    setSearchDraft,
+    handleReviewStatusFilterChange,
+    handleAIStatusFilterChange,
+    handleContentKindFilterChange,
+    handleDeliverableStatusFilterChange,
+    handleSearchSubmit,
+    handleSearchClear,
+    handleResetFilters,
+    handleThinkTankFilterChange,
+    handleSourceFilterChange,
+    handleWorkflowShortcut,
+  } = useReportFilters(resetReportListState);
 
   const canFetchContent = currentUser?.role === 'admin';
   const canRetryAI = currentUser?.role === 'admin';
-
-
-  const loadAIProgress = useCallback(async (reportId: number) => {
-    setLoadingProgress(true);
-    setProgressError(null);
-
-    try {
-      const progress = await fetchAIProgress(reportId);
-      setAIProgress(progress);
-    } catch (err) {
-      setAIProgress(null);
-      setProgressError((err as Error).message);
-    } finally {
-      setLoadingProgress(false);
+  const sourceOptions = thinkTankFilter
+    ? sources.filter((source) => source.think_tank_id === thinkTankFilter)
+    : sources;
+  const sourceById = useMemo(
+    () => new Map(sources.map((source) => [source.id, source])),
+    [sources]
+  );
+  const thinkTankById = useMemo(
+    () => new Map(thinkTanks.map((thinkTank) => [thinkTank.id, thinkTank])),
+    [thinkTanks]
+  );
+  const visibleReportIds = reports.map((report) => report.id);
+  const visibleSelectedReportCount = visibleReportIds.filter((reportId) =>
+    selectedReportIds.has(reportId)
+  ).length;
+  const allVisibleSelected =
+    visibleReportIds.length > 0 &&
+    visibleSelectedReportCount === visibleReportIds.length;
+  const reviewHistorySummary = useMemo(() => {
+    if (loadingReviewEvents) {
+      return '加载中';
     }
-  }, []);
 
-
-  const handleSelect = useCallback(async (reportId: number) => {
-    setLoadingDetail(true);
-    setDetailError(null);
-    setProgressError(null);
-    setTaskMessage(null);
-
-    try {
-      const report = await fetchReport(reportId);
-      setSelected(report);
-      setActiveView(getInitialView(searchParams.get('view')));
-      await loadAIProgress(report.id);
-    } catch (err) {
-      setDetailError((err as Error).message);
-    } finally {
-      setLoadingDetail(false);
+    if (reviewEventsError) {
+      return '读取失败';
     }
-  }, [loadAIProgress, searchParams]);
 
+    if (reviewEvents.length === 0) {
+      return '暂无记录';
+    }
+
+    const latestEvent = reviewEvents.reduce((latest, event) =>
+      new Date(event.created_at).getTime() > new Date(latest.created_at).getTime()
+        ? event
+        : latest
+    );
+    const latestStatus =
+      reportReviewStatusLabels[latestEvent.review_status] ??
+      latestEvent.review_status;
+
+    return `最近：${latestStatus} · ${formatDateTime(latestEvent.created_at)}`;
+  }, [loadingReviewEvents, reviewEvents, reviewEventsError]);
+  const aiProgressSummary = useMemo(() => {
+    if (loadingProgress) {
+      return '加载中';
+    }
+
+    if (progressError) {
+      return '读取失败';
+    }
+
+    if (!aiProgress) {
+      return '暂无记录';
+    }
+
+    if (aiProgress.total_chunks === 0) {
+      return '暂无分块';
+    }
+
+    const base = `${aiProgress.completed_chunks}/${aiProgress.total_chunks} 完成`;
+
+    if (aiProgress.failed_chunks > 0) {
+      return `${base} · ${aiProgress.failed_chunks} 失败`;
+    }
+
+    if (aiProgress.running_chunks > 0) {
+      return `${base} · ${aiProgress.running_chunks} 运行中`;
+    }
+
+    return `${base} · 无失败`;
+  }, [aiProgress, loadingProgress, progressError]);
+
+  const {
+    exportingReport,
+    exportingDocx,
+    exportingBatchFormat,
+    copyingTarget,
+    batchReviewStatus,
+    submittingBatchReview,
+    updatingReview,
+    setBatchReviewStatus,
+    handleExportReport,
+    handleExportDocx,
+    handleBatchExport,
+    handleCopyReportText,
+    handleReviewStatusChange,
+    handleReviewNoteSave,
+    handleBatchReviewStatusChange,
+  } = useReportActions({
+    selected,
+    activeView,
+    selectedReportIds,
+    reviewNoteDraft,
+    setSelected,
+    setReports,
+    setSelectedReportIds,
+    setDetailError,
+    setListError,
+    setTaskMessage,
+    loadReviewEvents,
+  });
+  const isReportListBusy =
+    submittingAIReportId !== null ||
+    submittingBatchReview ||
+    exportingBatchFormat !== null;
+  const reportListBusyMessage = submittingAIReportId !== null
+    ? 'AI 任务提交中，暂不可切换筛选。'
+    : submittingBatchReview
+      ? '批量复核处理中，暂不可切换筛选。'
+      : exportingBatchFormat !== null
+        ? '批量导出中，暂不可切换筛选。'
+        : '';
 
   // 页面挂载后读取 sessionStorage 中的用户
   useEffect(() => {
     const user = getCurrentUser();
     setCurrentUser(user);
   }, []);
+
+  useEffect(() => {
+    Promise.all([
+      fetchThinkTanks(),
+      fetchSources(),
+    ])
+      .then(([nextThinkTanks, nextSources]) => {
+        setThinkTanks(nextThinkTanks);
+        setSources(nextSources);
+      })
+      .catch((err: Error) => setListError(err.message));
+  }, []);
+
+  useEffect(() => {
+    if (!selected || searchParams.get('focus') !== 'review') {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      reviewSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+      setHighlightReviewSection(true);
+    }, 120);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightReviewSection(false);
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [selected, searchParams]);
 
 
   // 加载报告列表
@@ -209,208 +285,192 @@ function ReportsPageContent() {
     fetchReports({
       skip: (page - 1) * PAGE_SIZE,
       limit: PAGE_SIZE,
+      reviewStatus: reviewStatusFilter,
+      aiStatus: aiStatusFilter,
+      contentKind: contentKindFilter,
+      deliverableStatus: deliverableStatusFilter,
+      keyword: keywordFilter,
+      thinkTankId: thinkTankFilter,
+      sourceId: sourceFilter,
     })
       .then((data) => {
         setReports(data.items);
         setTotalReports(data.total);
+        setSelectedReportIds(new Set());
 
         const reportId = Number(searchParams.get('report_id'));
 
         if (reportId) {
           handleSelect(reportId);
+        } else if (data.items.length > 0) {
+          handleSelect(data.items[0].id);
         }
       })
       .catch((err: Error) => setListError(err.message))
       .finally(() => setLoadingList(false));
-  }, [page, searchParams, handleSelect]);
+  }, [
+    page,
+    reviewStatusFilter,
+    aiStatusFilter,
+    contentKindFilter,
+    deliverableStatusFilter,
+    keywordFilter,
+    thinkTankFilter,
+    sourceFilter,
+    searchParams,
+    handleSelect,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(totalReports / PAGE_SIZE));
   const selectedDocumentType = selected ? getDocumentType(selected) : null;
+  const selectedSource = selected ? sourceById.get(selected.source_id) : null;
+  const selectedThinkTank = selectedSource
+    ? thinkTankById.get(selectedSource.think_tank_id)
+    : null;
+  const adminDetailsSummary =
+    selected && selectedDocumentType
+      ? [
+          reportReviewStatusLabels[selected.review_status] ??
+            selected.review_status,
+          reportAIStatusLabels[selected.ai_status] ?? selected.ai_status,
+          selectedDocumentType.label,
+        ].join(' · ')
+      : '暂无报告';
+  const aiActionLabel =
+    selected?.ai_status === 'skipped'
+      ? '进入 AI 处理'
+      : '重试 AI 处理';
 
-  async function handleFetchContent() {
-    if (!selected) {
-      return;
-    }
-
-    setSubmittingFetch(true);
-    setDetailError(null);
-    setTaskMessage(null);
-
-    try {
-      const response = await triggerFetchContent(selected.id);
-
-      setTaskMessage(
-        `${response.message} 任务 ID：${response.task_id ?? '无'}`
-      );
-
-      setSelected((current) =>
-        current
-          ? {
-              ...current,
-              crawl_status: response.crawl_status,
-              crawl_error: null,
-              updated_at: response.updated_at,
-            }
-          : null
-      );
-    } catch (err) {
-      setDetailError((err as Error).message);
-    } finally {
-      setSubmittingFetch(false);
-    }
+  function toggleReportSelection(reportId: number) {
+    setSelectedReportIds((current) => {
+      const next = new Set(current);
+      if (next.has(reportId)) {
+        next.delete(reportId);
+      } else {
+        next.add(reportId);
+      }
+      return next;
+    });
   }
 
-  async function handleRetryAI() {
-    if (!selected) {
-      return;
-    }
-
-    setSubmittingAI(true);
-    setDetailError(null);
-    setProgressError(null);
-    setTaskMessage(null);
-
-    try {
-      const response = await retryReportAI(selected.id);
-
-      setTaskMessage(
-        `${response.message} 任务 ID：${response.task_id ?? '无'}`
-      );
-
-      setSelected((current) =>
-        current
-          ? {
-              ...current,
-              ai_status: response.ai_status,
-              updated_at: response.updated_at,
-            }
-          : null
-      );
-
-      await loadAIProgress(selected.id);
-    } catch (err) {
-      setDetailError((err as Error).message);
-    } finally {
-      setSubmittingAI(false);
-    }
+  function toggleAllVisibleReports() {
+    setSelectedReportIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        visibleReportIds.forEach((reportId) => next.delete(reportId));
+      } else {
+        visibleReportIds.forEach((reportId) => next.add(reportId));
+      }
+      return next;
+    });
   }
 
-  async function handleExportReport() {
-    if (!selected) {
-      return;
-    }
-
-    setExportingReport(true);
-    setDetailError(null);
-    setTaskMessage(null);
-
-    try {
-      const blob = await downloadReportExport(selected.id);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${selected.id}-${selected.title.slice(0, 40)}-ai-results.md`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setTaskMessage('报告成果导出已开始下载。');
-    } catch (err) {
-      setDetailError((err as Error).message);
-    } finally {
-      setExportingReport(false);
-    }
-  }
-
-  async function handleExportDocx() {
-    if (!selected) {
-      return;
-    }
-
-    setExportingDocx(true);
-    setDetailError(null);
-    setTaskMessage(null);
-
-    try {
-      const blob = await downloadReportDocxExport(selected.id);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${selected.id}-${selected.title.slice(0, 40)}-ai-results.docx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setTaskMessage('报告 Word 文档导出已开始下载。');
-    } catch (err) {
-      setDetailError((err as Error).message);
-    } finally {
-      setExportingDocx(false);
-    }
+  function clearReportSelection() {
+    setSelectedReportIds(new Set());
   }
 
   return (
     <AppShell>
       <div className="page-header">
         <h1>研究报告</h1>
-        <p>查看已收录报告、AI 翻译评论成果和处理进度。</p>
+        <p>筛选待复核报告，阅读 AI 翻译与评论稿，并导出可交付成果。</p>
       </div>
+
+      <section className="report-workbench-intro" aria-label="报告处理流程">
+        <div>
+          <strong>1. 筛选</strong>
+          <span>优先处理“待老师复核”和“可直接导出”。</span>
+        </div>
+        <div>
+          <strong>2. 阅读</strong>
+          <span>先看主要观点和深层研判，再核对全文翻译或原文。</span>
+        </div>
+        <div>
+          <strong>3. 交付</strong>
+          <span>复核通过后复制评论稿，或导出 Word / Markdown。</span>
+        </div>
+      </section>
 
       {loadingList && <p>正在加载报告列表……</p>}
       {listError && <p className="message-error">{listError}</p>}
 
       <div className="split-layout">
-        <section className="panel">
-          <div className="toolbar">
-            <p className="muted">
-              共 {totalReports} 篇，第 {page} / {totalPages} 页
-            </p>
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={page <= 1 || loadingList}
-            >
-              上一页
-            </button>
-            <button
-              type="button"
-              onClick={() =>
+        <section className="panel report-list-panel">
+          <div className="report-list-controls">
+            <ReportFilterBar
+              searchDraft={searchDraft}
+              keywordFilter={keywordFilter}
+              loading={loadingList || isReportListBusy}
+              busyMessage={reportListBusyMessage}
+              totalReports={totalReports}
+              page={page}
+              totalPages={totalPages}
+              reviewStatusFilter={reviewStatusFilter}
+              aiStatusFilter={aiStatusFilter}
+              contentKindFilter={contentKindFilter}
+              deliverableStatusFilter={deliverableStatusFilter}
+              thinkTankFilter={thinkTankFilter}
+              sourceFilter={sourceFilter}
+              thinkTanks={thinkTanks}
+              sourceOptions={sourceOptions}
+              onSearchDraftChange={setSearchDraft}
+              onSearchSubmit={handleSearchSubmit}
+              onSearchClear={handleSearchClear}
+              onResetFilters={handleResetFilters}
+              onReviewStatusChange={handleReviewStatusFilterChange}
+              onAIStatusChange={handleAIStatusFilterChange}
+              onContentKindChange={handleContentKindFilterChange}
+              onDeliverableStatusChange={
+                handleDeliverableStatusFilterChange
+              }
+              onThinkTankChange={handleThinkTankFilterChange}
+              onSourceChange={handleSourceFilterChange}
+              onWorkflowShortcut={handleWorkflowShortcut}
+              onPreviousPage={() =>
+                setPage((current) => Math.max(1, current - 1))
+              }
+              onNextPage={() =>
                 setPage((current) => Math.min(totalPages, current + 1))
               }
-              disabled={page >= totalPages || loadingList}
-            >
-              下一页
-            </button>
+            />
+
+            {canRetryAI && (
+              <ReportBatchActions
+                visibleReportCount={reports.length}
+                selectedReportCount={selectedReportIds.size}
+                visibleSelectedReportCount={visibleSelectedReportCount}
+                allVisibleSelected={allVisibleSelected}
+                loadingList={loadingList}
+                busy={isReportListBusy}
+                batchReviewStatus={batchReviewStatus}
+                submittingBatchReview={submittingBatchReview}
+                exportingBatchFormat={exportingBatchFormat}
+                onToggleAllVisible={toggleAllVisibleReports}
+                onClearSelection={clearReportSelection}
+                onBatchReviewStatusChange={setBatchReviewStatus}
+                onApplyBatchReview={handleBatchReviewStatusChange}
+                onBatchExport={handleBatchExport}
+              />
+            )}
           </div>
 
-          <ul className="report-list">
-            {reports.map((report) => {
-              const documentType = getDocumentType(report);
-
-              return (
-                <li key={report.id}>
-                  <button
-                    type="button"
-                    onClick={() => handleSelect(report.id)}
-                  >
-                    <span className="report-title">{report.title}</span>
-                    <span className={documentType.className}>
-                      {documentType.label}
-                    </span>
-                    <br />
-                    <small>
-                      抓取：{crawlStatusLabels[report.crawl_status] ?? report.crawl_status}
-                      {' / '}
-                      AI：{aiStatusLabels[report.ai_status] ?? report.ai_status}
-                    </small>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <ReportList
+            reports={reports}
+            sourcesById={sourceById}
+            thinkTanksById={thinkTankById}
+            selectedReportIds={selectedReportIds}
+            activeReportId={selected?.id ?? null}
+            canRetryAI={canRetryAI}
+            selectionDisabled={isReportListBusy}
+            submittingAIReportId={submittingAIReportId}
+            onSelectReport={handleSelect}
+            onToggleReportSelection={toggleReportSelection}
+            onRetryAI={submitRetryAI}
+            onResetFilters={handleResetFilters}
+          />
         </section>
 
-        <section className="panel">
+        <section className="panel report-detail-panel">
           {loadingDetail && <p>正在加载报告详情……</p>}
           {detailError && (
             <p className="message-error">{detailError}</p>
@@ -420,233 +480,118 @@ function ReportsPageContent() {
           )}
 
           {selected && selectedDocumentType && !loadingDetail && (
-            <article>
-              <h2>{selected.title}</h2>
-              <p>
-                <a
-                  href={selected.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  原文链接
-                </a>
-              </p>
+            <article className="report-detail">
+              <ReportDetailHeader
+                report={selected}
+                documentType={selectedDocumentType}
+                source={selectedSource ?? null}
+                thinkTank={selectedThinkTank ?? null}
+              />
 
-              <div className="status-line">
-                <span className={selectedDocumentType.className}>
-                  {selectedDocumentType.label}
-                </span>
-                <span className="badge">
-                  抓取：{crawlStatusLabels[selected.crawl_status] ?? selected.crawl_status}
-                </span>
-                <span className="badge">
-                  AI：{aiStatusLabels[selected.ai_status] ?? selected.ai_status}
-                </span>
-                {selected.ai_generated_at ? (
-                  <span className="badge">
-                    生成：{formatDateTime(selected.ai_generated_at)}
-                  </span>
-                ) : null}
-              </div>
-
-              <dl className="metadata-grid">
-                <div>
-                  <dt>PDF 链接</dt>
-                  <dd>
-                    {selectedDocumentType.isPdf && selected.pdf_url ? (
-                      <a
-                        href={selected.pdf_url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        打开 PDF
-                      </a>
-                    ) : selectedDocumentType.isPdf ? (
-                      '暂无'
-                    ) : (
-                      '网页正文'
-                    )}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>页数</dt>
-                  <dd>
-                    {selectedDocumentType.isPdf
-                      ? selected.page_count ?? '未知'
-                      : '不适用'}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>有效文本页</dt>
-                  <dd>
-                    {selectedDocumentType.isPdf
-                      ? selected.non_empty_page_count ?? '未知'
-                      : '不适用'}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>PDF 大小</dt>
-                  <dd>
-                    {selectedDocumentType.isPdf && selected.pdf_byte_length
-                      ? `${Math.round(selected.pdf_byte_length / 1024)} KB`
-                      : selectedDocumentType.isPdf
-                        ? '未知'
-                        : '不适用'}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>成果字数</dt>
-                  <dd>
-                    原文 {countTextChars(selected.content)} 字 / 翻译{' '}
-                    {countTextChars(selected.translation)} 字 / 摘要{' '}
-                    {countTextChars(selected.summary)} 字 / 评论{' '}
-                    {countTextChars(selected.commentary)} 字
-                  </dd>
-                </div>
-              </dl>
-
-              {canFetchContent && (
-                <button
-                  type="button"
-                  onClick={handleFetchContent}
-                  disabled={submittingFetch}
-                >
-                  {submittingFetch ? '正在提交抓取任务……' : '抓取正文'}
-                </button>
-              )}
-
-              {canRetryAI && selected.content && (
-                <button
-                  type="button"
-                  onClick={handleRetryAI}
-                  disabled={
-                    submittingAI ||
-                    ['processing', 'finalize_queued', 'finalizing'].includes(
-                      selected.ai_status
-                    )
-                  }
-                >
-                  {submittingAI ? '正在提交 AI 任务……' : '重试 AI 处理'}
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={handleExportReport}
-                disabled={exportingReport}
-              >
-                {exportingReport ? '正在导出……' : '导出成果 Markdown'}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportDocx}
-                disabled={exportingDocx}
-              >
-                {exportingDocx ? '正在导出 Word……' : '导出成果 Word'}
-              </button>
+              <ReportOutcomeSummary
+                report={selected}
+                activeView={activeView}
+                copyingTarget={copyingTarget}
+                exportingReport={exportingReport}
+                exportingDocx={exportingDocx}
+                onViewSelect={setActiveView}
+                onCopyCommentary={() => handleCopyReportText('commentary')}
+                onCopyTranslation={() => handleCopyReportText('translation')}
+                onExportMarkdown={handleExportReport}
+                onExportDocx={handleExportDocx}
+              />
 
               {selected.crawl_error && (
-                <p style={{ color: 'red' }}>
+                <p className="message-error">
                   抓取错误：{selected.crawl_error}
                 </p>
               )}
 
-              <section className="section-block">
-                <h3>AI 分块进度</h3>
-                {loadingProgress && <p>正在加载 AI 进度……</p>}
-                {progressError && (
-                  <p className="message-error">{progressError}</p>
-                )}
-                {aiProgress ? (
-                  <div>
-                    <p>
-                      已完成 {aiProgress.completed_chunks} /{' '}
-                      {aiProgress.total_chunks} 块；失败{' '}
-                      {aiProgress.failed_chunks} 块；运行中{' '}
-                      {aiProgress.running_chunks} 块。
-                    </p>
+              <ReportContentViewer
+                report={selected}
+                activeView={activeView}
+                copyingTarget={copyingTarget}
+                onActiveViewChange={setActiveView}
+                onCopyCurrent={() => handleCopyReportText('current')}
+              />
 
-                    {aiProgress.latest_error && (
-                      <p style={{ color: 'red' }}>
-                        最近错误：{aiProgress.latest_error}
-                      </p>
-                    )}
+              <section className="secondary-detail-group">
+                <details
+                  className="secondary-details"
+                  open={searchParams.get('focus') === 'review'}
+                >
+                  <summary>
+                    <span>文档信息、复核与导出操作</span>
+                    <small>{adminDetailsSummary}</small>
+                  </summary>
+                  <ReportMetadataGrid
+                    report={selected}
+                    documentType={selectedDocumentType}
+                    source={selectedSource ?? null}
+                    thinkTank={selectedThinkTank ?? null}
+                    canReview={canRetryAI}
+                    updatingReview={updatingReview}
+                    reviewNoteDraft={reviewNoteDraft}
+                    highlightReviewSection={highlightReviewSection}
+                    reviewSectionRef={reviewSectionRef}
+                    onReviewStatusChange={handleReviewStatusChange}
+                    onReviewNoteChange={setReviewNoteDraft}
+                    onReviewNoteSave={handleReviewNoteSave}
+                  />
 
-                    <ul>
-                      {aiProgress.by_type.map((item) => (
-                        <li key={item.chunk_type}>
-                          {chunkTypeLabels[item.chunk_type] ?? item.chunk_type}
-                          ：成功 {item.success} / {item.total}，待处理{' '}
-                          {item.pending}，已入队 {item.queued}，处理中{' '}
-                          {item.processing}，失败 {item.failed}
-                        </li>
-                      ))}
-                    </ul>
+                  <ReportActionBar
+                    report={selected}
+                    canFetchContent={canFetchContent}
+                    canRetryAI={canRetryAI}
+                    submittingFetch={submittingFetch}
+                    submittingAIReportId={submittingAIReportId}
+                    exportingReport={exportingReport}
+                    exportingDocx={exportingDocx}
+                    copyingTarget={copyingTarget}
+                    aiActionLabel={aiActionLabel}
+                    onFetchContent={handleFetchContent}
+                    onRetryAI={handleRetryAI}
+                    onExportMarkdown={handleExportReport}
+                    onExportDocx={handleExportDocx}
+                    onCopyCommentary={() => handleCopyReportText('commentary')}
+                    onCopyTranslation={() => handleCopyReportText('translation')}
+                  />
+                </details>
 
-                    {aiProgress.chunks.length > 0 ? (
-                      <details>
-                        <summary>查看全部分块</summary>
-                        <ol>
-                          {aiProgress.chunks.map((chunk) => (
-                            <li key={chunk.id}>
-                              {chunkTypeLabels[chunk.chunk_type] ??
-                                chunk.chunk_type}{' '}
-                              {chunk.chunk_index}/{chunk.chunk_count}：
-                              {chunkStatusLabels[chunk.status] ??
-                                chunk.status}
-                              ，重试 {chunk.retry_count} 次
-                              {chunk.last_error ? (
-                                <span className="message-error">
-                                  {' '}
-                                  / {chunk.last_error}
-                                </span>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ol>
-                      </details>
-                    ) : (
-                      <p>暂无 AI 分块记录。</p>
-                    )}
-                  </div>
-                ) : null}
+                <details className="secondary-details">
+                  <summary>
+                    <span>复核历史</span>
+                    <small>{reviewHistorySummary}</small>
+                  </summary>
+                  <ReviewHistoryPanel
+                    loading={loadingReviewEvents}
+                    errorMessage={reviewEventsError}
+                    events={reviewEvents}
+                  />
+                </details>
+
+                <details className="secondary-details">
+                  <summary>
+                    <span>AI 分块进度</span>
+                    <small>{aiProgressSummary}</small>
+                  </summary>
+                  <AIProgressPanel
+                    loading={loadingProgress}
+                    errorMessage={progressError}
+                    progress={aiProgress}
+                  />
+                </details>
               </section>
-
-              <hr />
-
-              <div className="tabbar" role="tablist" aria-label="报告内容视图">
-                {reportViews.map((view) => (
-                  <button
-                    key={view.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeView === view.key}
-                    onClick={() => setActiveView(view.key)}
-                  >
-                    {view.label}
-                  </button>
-                ))}
-              </div>
-
-              {selected[activeView] ? (
-                <div className="content-view">
-                  {selected[activeView]}
-                </div>
-              ) : (
-                <p>
-                  {
-                    reportViews.find(
-                      (view) => view.key === activeView
-                    )?.emptyText
-                  }
-                </p>
-              )}
             </article>
+          )}
+
+          {!selected && !loadingDetail && !detailError && (
+            <div className="empty-state empty-state-large">
+              <strong>请选择一篇报告</strong>
+              <p>
+                从左侧列表选择报告后，这里会显示全文翻译、主要观点和深层研判。
+              </p>
+            </div>
           )}
         </section>
       </div>

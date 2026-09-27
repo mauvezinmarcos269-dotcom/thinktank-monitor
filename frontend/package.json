@@ -7,8 +7,8 @@
     "build": "next build",
     "build:local": "powershell -ExecutionPolicy Bypass -File ../scripts/build-local-frontend.ps1",
     "start": "next start",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint app components lib",
+    "lint:fix": "eslint app components lib --fix",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "typecheck": "tsc --noEmit"

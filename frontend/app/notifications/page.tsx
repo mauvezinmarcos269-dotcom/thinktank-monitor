@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import { AppShell } from '@/components/app-shell';
@@ -10,6 +10,19 @@ import {
   markNotificationRead,
   type Notification,
 } from '@/lib/notification';
+import {
+  notificationEventTypeLabels,
+  type NotificationEventType,
+} from '@/lib/status';
+
+const notificationEventFilters: NotificationEventType[] = [
+  'report.created',
+  'report.ai_completed',
+  'report.ai_failed',
+  'report.fetch_failed',
+  'report.review_needs_rerun',
+  'daily_summary',
+];
 
 function formatNotificationTime(value: string): string {
   const date = new Date(value);
@@ -22,11 +35,22 @@ function formatNotificationTime(value: string): string {
 }
 
 function getReportView(eventType: string): string {
-  if (eventType.startsWith('report.ai.')) {
+  if (
+    eventType.startsWith('report.ai.') ||
+    eventType === 'report.review_needs_rerun'
+  ) {
     return 'summary';
   }
 
   return 'content';
+}
+
+function getNotificationEventLabel(eventType: string): string {
+  return (
+    notificationEventTypeLabels[
+      eventType as keyof typeof notificationEventTypeLabels
+    ] ?? eventType
+  );
 }
 
 function notifyUnreadCountChanged() {
@@ -40,13 +64,18 @@ export default function NotificationsPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
+  const [eventTypeFilter, setEventTypeFilter] = useState<
+    NotificationEventType | ''
+  >('');
 
-  async function loadNotifications() {
+  const loadNotifications = useCallback(async (nextEventType = eventTypeFilter) => {
     setLoading(true);
     setErrorMessage(null);
 
     try {
-      const data = await fetchNotifications();
+      const data = await fetchNotifications({
+        eventType: nextEventType,
+      });
       setNotifications(data);
     } catch (error) {
       setErrorMessage(
@@ -55,11 +84,17 @@ export default function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [eventTypeFilter]);
 
   useEffect(() => {
     loadNotifications();
-  }, []);
+  }, [loadNotifications]);
+
+  async function handleEventTypeFilterChange(value: NotificationEventType | '') {
+    setEventTypeFilter(value);
+    setSuccessMessage(null);
+    await loadNotifications(value);
+  }
 
   async function handleMarkRead(notificationId: number) {
     setUpdatingId(notificationId);
@@ -117,7 +152,26 @@ export default function NotificationsPage() {
 
       <section className="panel">
       <div className="toolbar">
-        <button type="button" onClick={loadNotifications} disabled={loading}>
+        <label>
+          类型
+          <select
+            value={eventTypeFilter}
+            onChange={(event) =>
+              handleEventTypeFilterChange(
+                event.target.value as NotificationEventType | ''
+              )
+            }
+            disabled={loading}
+          >
+            <option value="">全部</option>
+            {notificationEventFilters.map((eventType) => (
+              <option key={eventType} value={eventType}>
+                {getNotificationEventLabel(eventType)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" onClick={() => loadNotifications()} disabled={loading}>
           {loading ? '刷新中……' : '刷新'}
         </button>
         <button
@@ -148,7 +202,7 @@ export default function NotificationsPage() {
                 </h2>
                 <p>{notification.message}</p>
                 <p className="muted">
-                  {notification.event_type} /{' '}
+                  {getNotificationEventLabel(notification.event_type)} /{' '}
                   {formatNotificationTime(notification.created_at)}
                 </p>
                 {notification.report_id ? (
@@ -156,7 +210,7 @@ export default function NotificationsPage() {
                     <Link
                       href={`/reports?report_id=${notification.report_id}&view=${getReportView(
                         notification.event_type
-                      )}`}
+                      )}&focus=review`}
                     >
                       查看报告
                     </Link>

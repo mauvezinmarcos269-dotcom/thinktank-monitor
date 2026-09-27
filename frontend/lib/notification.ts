@@ -1,10 +1,11 @@
 import { apiRequest } from '@/lib/api';
+import { type NotificationEventType } from '@/lib/status';
 
 export type Notification = {
   id: number;
   user_id: number;
   report_id: number | null;
-  event_type: string;
+  event_type: NotificationEventType | string;
   title: string;
   message: string;
   is_read: boolean;
@@ -15,8 +16,18 @@ export type NotificationUnreadCount = {
   unread_count: number;
 };
 
-export async function fetchNotifications(): Promise<Notification[]> {
-  return apiRequest<Notification[]>('/api/v1/notifications?limit=100');
+export async function fetchNotifications(params?: {
+  eventType?: NotificationEventType | '';
+}): Promise<Notification[]> {
+  const query = new URLSearchParams({
+    limit: '100',
+  });
+
+  if (params?.eventType) {
+    query.set('event_type', params.eventType);
+  }
+
+  return apiRequest<Notification[]>(`/api/v1/notifications?${query.toString()}`);
 }
 
 export async function fetchUnreadNotificationCount(): Promise<number> {

@@ -1,4 +1,13 @@
 import { apiDownload, apiRequest } from '@/lib/api';
+import {
+  type CrawlCandidateStatus,
+  type CrawlRunStatus,
+  type PriorityTier,
+  type RegionFocus,
+  type SourceCrawlStatus,
+  type SourceHealthStatus,
+  type SourceType,
+} from '@/lib/status';
 
 export type ThinkTank = {
   id: number;
@@ -9,8 +18,11 @@ export type ThinkTank = {
   website: string | null;
   description: string | null;
   organization_type: string;
+  priority_tier: PriorityTier;
+  region_focus: RegionFocus;
   parent_id: number | null;
   is_key: boolean;
+  is_verified: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -19,11 +31,11 @@ export type ThinkTank = {
 export type Source = {
   id: number;
   think_tank_id: number;
-  source_type: string;
+  source_type: SourceType;
   url: string;
   crawl_frequency_minutes: number;
   is_active: boolean;
-  last_crawl_status: string;
+  last_crawl_status: SourceCrawlStatus;
   last_crawled_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -33,7 +45,7 @@ export type Source = {
 export type CrawlRun = {
   id: number;
   source_id: number;
-  status: string;
+  status: CrawlRunStatus;
   found_count: number;
   saved_count: number;
   error: string | null;
@@ -51,7 +63,7 @@ export type CrawlCandidate = {
   title: string | null;
   url: string;
   normalized_url: string | null;
-  status: string;
+  status: CrawlCandidateStatus;
   skip_reason_code: string | null;
   skip_reason_label: string | null;
   error: string | null;
@@ -62,20 +74,29 @@ export type CrawlCandidate = {
   page_count: number | null;
   non_empty_page_count: number | null;
   pdf_byte_length: number | null;
+  content_kind: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export type SourceHealth = Source & {
   think_tank_name: string;
+  think_tank_key: string;
   think_tank_country: string;
+  think_tank_priority_tier: PriorityTier;
+  think_tank_region_focus: RegionFocus;
+  think_tank_is_verified: boolean;
   latest_report_created_at: string | null;
   report_count: number;
-  health_status: 'healthy' | 'warning' | 'failed' | 'never' | 'disabled';
+  health_status: SourceHealthStatus;
   health_reason: string;
   diagnosis_code: string;
   diagnosis_label: string;
   diagnosis_advice: string;
+  rollout_stage: string;
+  document_policy: string;
+  can_run_pilot_crawl: boolean;
+  rollout_advice: string;
   recent_crawl_runs: CrawlRun[];
 };
 
@@ -111,13 +132,14 @@ export type CrawlCandidateStatistics = {
   total: number;
   by_status: CrawlCandidateCount[];
   by_skip_reason: CrawlCandidateCount[];
+  by_content_kind: CrawlCandidateCount[];
 };
 
 export type CrawlCandidateQuery = {
   crawlRunId: number;
   skip?: number;
   limit?: number;
-  status?: string;
+  status?: CrawlCandidateStatus | '';
   skipReasonLabel?: string;
 };
 
@@ -133,7 +155,7 @@ export type InstitutionStats = {
 };
 
 export type SourceCreateInput = {
-  source_type: 'website' | 'rss' | 'report_library' | 'topic_page';
+  source_type: SourceType;
   url: string;
   crawl_frequency_minutes: number;
   is_active: boolean;
