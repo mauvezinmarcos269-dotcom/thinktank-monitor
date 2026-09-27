@@ -107,7 +107,15 @@ logs/
 *.csv
 tmp/
 temp/
+
+# 项目运行和人工复核过程中产生的备份、导出产物
+docs/backups/
+backend/docs/backups/
+docs/exports/
+backend/docs/exports/
+
 # Secrets
 *.env
 *.env.*
 *.backup
+.codex-backups/

@@ -9,6 +9,15 @@
 - 功能开发完成后先运行后端和前端检查，再提交。
 - 不要把本地 `.env`、临时输出、备份目录、构建产物提交到仓库。
 
+## 基线整理
+
+阶段性功能完成后，先把工作区按以下口径整理为可回退基线：
+
+- 应提交：业务代码、数据库迁移、测试、正式开发文档、来源治理文档和可复用脚本。
+- 不提交：`docs/backups/`、`backend/docs/backups/`、`docs/exports/`、`backend/docs/exports/`、`.codex-backups/`、本地构建产物和本地密钥。
+- 需人工确认：大体量样本数据、一次性诊断输出、面向老师交付的 Word/Markdown 成果，以及只在本地使用的临时脚本。
+- 提交前运行 `git status --short --branch`，确认未跟踪文件中没有误加入备份、导出成果或敏感配置。
+
 ## 后端开发
 
 常用命令：
@@ -36,12 +45,24 @@ id: Mapped[int] = mapped_column(
 - Celery task 尽量调用 service，避免在 task 文件里堆复杂 SQL。
 - 手动诊断脚本放在 `backend/app/scripts/`，避免命名为 `test_*.py`。
 
+本地手动运行 `backend/app/scripts/` 下的诊断、爬虫或 AI 运维脚本时，
+统一通过仓库根目录的包装脚本执行，避免直接读取 Docker 环境中的
+`redis` 主机名：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 poetry run python -m app.scripts.pilot_crawl_sources --help
+```
+
+包装脚本默认使用本地隔离队列 `thinktank-local-codex`；如果确认要投递给
+当前 Docker worker 消费的 `celery` 队列，再显式传入 `-Queue celery`。
+
 ## 抓取与候选报告
 
 - RSS 稳定性逻辑在 `backend/app/services/crawler/rss_parser.py`。
 - 美国核心网站解析器在 `backend/app/services/crawler/us_core_parser.py`。
 - “重磅报告”预筛规则在 `backend/app/services/crawler/report_candidate_filter.py`。
 - 候选报告统计和导出由 `CrawlCandidateService` 提供。
+- 单个来源的接入、试抓、前端复核、升级和停用流程见 `docs/source-onboarding-playbook.md`。
 
 新增解析器时建议同步补充：
 
@@ -61,6 +82,7 @@ notification.daily_summary
 
 - `NOTIFICATION_DAILY_SUMMARY_ENABLED`
 - `NOTIFICATION_SUMMARY_LOOKBACK_HOURS`
+- `NOTIFICATION_INSTANT_ALERTS_ENABLED`
 - `NOTIFICATION_EMAIL_ENABLED`
 - `NOTIFICATION_EMAIL_TO`
 - `NOTIFICATION_SMTP_HOST`
@@ -71,7 +93,9 @@ notification.daily_summary
 - `NOTIFICATION_WECOM_WEBHOOK_URL`
 - `NOTIFICATION_FEISHU_WEBHOOK_URL`
 
-默认只生成站内通知；配置邮件或 webhook 后才会外发。
+默认只生成站内通知；配置邮件或 webhook 后才会外发。即时外发默认关闭，
+开启 `NOTIFICATION_INSTANT_ALERTS_ENABLED` 后，只对 P0/P1 来源的新报告
+入库和 AI 成果完成事件即时外发，避免调试和批量抓取阶段频繁打扰老师。
 
 ## 前端开发
 

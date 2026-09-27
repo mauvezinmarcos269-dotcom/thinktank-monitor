@@ -1,12 +1,15 @@
 # 来源解析器扩展优先级清单
 
-更新时间：2026-09-09
+更新时间：2026-09-12
 
 ## 目标
 
 本清单用于指导下一阶段的爬虫来源解析器扩展，优先解决当前平台无法稳定获取“重磅涉华研究报告”的来源。清单基于后端现有来源健康状态、最近抓取失败原因、候选报告统计以及当前已实现解析器能力整理。
 
-当前后端网站解析器只覆盖 CSIS 网站来源；RSS 来源已有通用解析逻辑，但个别站点存在 feed 格式或地址问题。
+当前后端网站解析器已覆盖 CSIS、Brookings 以及一批美国核心通用站点；
+RSS 来源已有通用解析逻辑，但个别站点仍可能存在 feed 格式或地址问题。
+
+机构分层、待校对池和后续字段设计见 [source-governance.md](source-governance.md)。
 
 ## 排序原则
 
@@ -15,6 +18,7 @@
 3. 已有 RSS 能稳定产出的站点，网站解析器优先级后移。
 4. 对非美国来源，优先英欧日德韩等对华政策影响较大的机构。
 5. 暂不把国内机构作为第一批解析器目标，除非老师明确要求覆盖国内智库动态。
+6. 涉华准入采用 `direct` 或 `substantial` 双口径：标题不显性涉华但正文实质讨论中国因素的报告也应保留，只有零散提及中国的 `incidental` 报告才跳过。
 
 ## P0：先修复的非网站解析问题
 
@@ -40,7 +44,7 @@
 Brookings、RAND、Carnegie Endowment、CFR、PIIE。解析器会优先保留
 report、research、publication、working paper 等报告型候选，并排除
 podcast、blog、event、commentary、news 等轻量内容；最终仍以 PDF/正文提取
-和 20 页门槛作为硬筛选。
+和 20 页门槛作为硬筛选。涉华判断不要求标题明确涉华，正文核心论证中实质涉及中国即可进入后续入库和 AI 处理。
 
 ### 1. Brookings
 
@@ -86,6 +90,7 @@ podcast、blog、event、commentary、news 等轻量内容；最终仍以 PDF/�
 
 - 来源 ID：2
 - URL：`https://www.heritage.org/`
+- 当前处理：已接入核心美国网站通用解析器，优先保留 `/report/` 路径下的涉华报告型候选。
 - 优先原因：对美国保守派政策圈影响较大，涉华政策立场鲜明。
 - 注意事项：需要区分报告、背景简报、评论文章。
 
@@ -93,36 +98,54 @@ podcast、blog、event、commentary、news 等轻量内容；最终仍以 PDF/�
 
 - 来源 ID：6
 - URL：`https://www.aei.org/`
+- 当前处理：已接入核心美国网站通用解析器，覆盖 AEI 报告页和 `aeistats.aei.org` 报告列表入口。
 - 优先原因：美国政策圈影响较大，外交、安全、经济议题均有产出。
 
 ### 3. Hoover Institution
 
 - 来源 ID：10
 - URL：`https://www.hoover.org/`
+- 当前处理：已接入核心美国网站通用解析器，优先从 China topic 和出版物页发现候选。
 - 优先原因：涉华意识形态、安全与科技议题较多。
 
 ### 4. Wilson Center
 
 - 来源 ID：12
 - URL：`https://www.wilsoncenter.org/`
+- 当前处理：已接入核心美国网站通用解析器，优先从搜索页、
+  insight-analysis 和 publications 入口解析涉华报告/长文候选。
 - 优先原因：国际与区域问题资料丰富，但需过滤活动、短新闻。
+- 注意事项：2026-09-12 真实发现复核仍为 0，需继续确认 Wilson
+  当前有效的专题页、搜索参数或可用 feed。
 
 ### 5. Cato Institute
 
 - 来源 ID：4
 - URL：`https://www.cato.org/`
+- 当前处理：已接入核心美国网站通用解析器，优先解析 `/policy-analysis/`
+  下带涉华信号的政策分析。
 - 优先原因：美国政策讨论中有一定影响力，经济与外交政策议题可补充。
+- 注意事项：2026-09-12 真实发现复核显示 Cato 对普通 HTTP 请求返回
+  Incapsula 防护页，当前运行环境无法稳定取得真实列表页；后续需考虑
+  官方 feed、可授权 API 或人工维护入口。
 
 ### 6. Center for American Progress
 
 - 来源 ID：13
 - URL：`https://www.americanprogress.org/`
+- 当前处理：已接入 CAP 专用解析器；只保留明确标注为 `Report`
+  的 `/article/` 条目，并排除普通 `Article`。
 - 优先原因：偏民主党政策网络，适合平衡美国两党政策视角。
+- 注意事项：CAP 内容多集中在 `/article/`，需要先识别页面或列表中的
+  `Report` 类型，再进入抓取；不宜直接把所有 `/article/` 涉华内容视为长报告。
 
 ### 7. NBER
 
 - 来源 ID：14
 - URL：`https://www.nber.org/`
+- 当前处理：已接入 NBER 搜索 API 解析器，优先保留
+  `/api/v1/search?q=China` 返回的 `working_paper` 且 URL 为 `/papers/`
+  的涉华工作论文。
 - 优先原因：经济研究质量高。
 - 注意事项：严格说更接近学术工作论文来源，不是典型智库报告；可后置。
 
@@ -199,18 +222,28 @@ podcast、blog、event、commentary、news 等轻量内容；最终仍以 PDF/�
 - 暂缓原因：RSS 来源 ID 51 已经能稳定抓取，并已有较多候选结果。
 - 后续动作：等核心缺失来源补齐后，再做网站解析器作为召回增强。
 
+## 已增强但仍需标准复核
+
 ### CSIS 网站解析器增强
 
 - 来源 ID：5、55
 - URL：`https://www.csis.org/analysis`、`https://www.csis.org/`
-- 暂缓原因：RSS 来源 ID 53 已经可用；网站来源当前主要问题更像网络连接或页面结构差异。
-- 后续动作：若老师要求更全覆盖 CSIS，再单独增强 CSIS 网站解析。
+- 当前处理：已增强 CSIS website 解析器，保留正式 `Report`
+  类型过滤，并新增公开 sitemap 补充入口。sitemap 入口仅筛选 URL
+  自身带涉华信号的 `/analysis/` 页面，并打开页面确认存在 PDF
+  下载链接后才作为候选。
+- 验证结果：2026-09-19 只读审计中，CSIS 发现候选从 0 提升到 8；
+  前 3 条候选中 2 条 PDF 报告通过 20 页门槛。
+- 当前状态：仍保持 `standard_review`，不直接进入自动入库试运行。
+- 后续动作：建议先执行每次最多保存 1 篇、AI 状态 `skipped`
+  的小批量人工试运行；样本质量通过后，再评估是否调整为
+  `pilot_crawl`。
 
 ## 建议下一步
 
-建议第 44 步优先做 Brookings RSS 容错修复。该项改动最小，成功后可立即恢复一个核心美国来源。
-
-如果第 44 步后仍无法得到足够 Brookings 报告，再进入 Brookings 网站解析器开发。
+当前 P0/P1 美国重点来源的基础解析器已基本覆盖。下一步建议先对
+CSIS 执行小样本人工试运行，确认 sitemap 补充入口发现的涉华 PDF
+报告是否适合进入正式报告库。
 
 建议后续站点开发顺序：
 
@@ -220,5 +253,7 @@ podcast、blog、event、commentary、news 等轻量内容；最终仍以 PDF/�
 4. Carnegie website 解析器（已完成基础解析器）
 5. CFR website 解析器（已完成基础解析器）
 6. PIIE website 解析器（已完成基础解析器）
-7. Heritage / AEI / Hoover website 解析器
-8. Chatham House / IISS / ECFR / Bruegel website 解析器
+7. Heritage / AEI / Hoover / Wilson website 解析器（已完成基础解析器）
+8. Cato / NBER website 解析器（已完成基础解析器）
+9. CAP website 解析器（已完成专用 Report 类型识别）
+10. Chatham House / IISS / ECFR / Bruegel website 解析器

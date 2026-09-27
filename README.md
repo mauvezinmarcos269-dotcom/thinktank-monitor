@@ -61,6 +61,7 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 ```
 
 更多开发约定见 [docs/development.md](docs/development.md)。
+来源分层和数据治理口径见 [docs/source-governance.md](docs/source-governance.md)。
 
 ## 本地联调
 
@@ -98,6 +99,20 @@ powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1 -Queue thinktank-local-codex
 powershell -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1 -Queue thinktank-local-codex
+```
+
+本地手动执行后端诊断、爬虫或 AI 运维命令时，不要直接在 `backend`
+目录运行 `poetry run ...`，否则会读取 Docker 环境使用的 `redis`
+主机名。统一通过包装脚本注入本地 Redis 和 Celery 队列配置：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 poetry run python -m app.scripts.pilot_crawl_sources --help
+```
+
+如需让手动命令投递到现有 Docker worker 消费的 `celery` 队列，可显式传入：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python -m app.scripts.pilot_crawl_sources --help
 ```
 
 ### 前端构建注意事项
@@ -179,5 +194,8 @@ docker compose up -d --build backend celery-worker celery-beat frontend
 - `NOTIFICATION_SMTP_FROM`
 - `NOTIFICATION_WECOM_WEBHOOK_URL`
 - `NOTIFICATION_FEISHU_WEBHOOK_URL`
+- `NOTIFICATION_INSTANT_ALERTS_ENABLED`
 
 未配置邮件或 webhook 时，系统只生成站内通知，不影响抓取和 AI 处理。
+`NOTIFICATION_INSTANT_ALERTS_ENABLED` 默认关闭；开启后，仅 P0/P1
+来源的新报告入库和 AI 成果完成事件会即时外发，其他更新仍进入每日摘要。
