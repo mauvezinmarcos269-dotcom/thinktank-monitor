@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.status import AIChunkStatus, AIChunkType, ReportAIStatus
 from app.models.report import Report
 from app.models.report_ai_chunk import ReportAIChunk
 from app.utils.datetime import utc_now_naive
@@ -116,14 +117,14 @@ def _merge_translation_chunks(
     """
     group = _validate_complete_chunk_group(
         chunks,
-        "translation",
+        AIChunkType.translation.value,
     )
 
     translations: list[str] = []
 
     for chunk in group:
         if (
-            chunk.status != "success"
+            chunk.status != AIChunkStatus.success.value
             or not chunk.output_text
         ):
             raise ValueError(
@@ -145,14 +146,14 @@ def _merge_analysis_chunks(
     """
     group = _validate_complete_chunk_group(
         chunks,
-        "analysis",
+        AIChunkType.analysis.value,
     )
 
     notes: list[str] = []
 
     for chunk in group:
         if (
-            chunk.status != "success"
+            chunk.status != AIChunkStatus.success.value
             or not chunk.output_text
         ):
             raise ValueError(
@@ -205,10 +206,10 @@ async def queue_report_ai_finalization(
         )
 
     if report.ai_status in {
-        "finalize_queued",
-        "finalizing",
-        "success",
-        "failed",
+        ReportAIStatus.finalize_queued.value,
+        ReportAIStatus.finalizing.value,
+        ReportAIStatus.success.value,
+        ReportAIStatus.failed.value,
     }:
         return ReportAIFinalizationQueueResult(
             report_id=report_id,
@@ -241,14 +242,14 @@ async def queue_report_ai_finalization(
         chunk
         for chunk in chunks
         if (
-            chunk.status == "failed"
+            chunk.status == AIChunkStatus.failed.value
             and chunk.retry_count
             >= max_chunk_retries
         )
     ]
 
     if exhausted_chunks:
-        report.ai_status = "failed"
+        report.ai_status = ReportAIStatus.failed.value
         report.updated_at = utc_now_naive()
 
         await db.flush()
@@ -268,7 +269,7 @@ async def queue_report_ai_finalization(
         )
 
     if any(
-        chunk.status != "success"
+        chunk.status != AIChunkStatus.success.value
         for chunk in chunks
     ):
         return ReportAIFinalizationQueueResult(
@@ -291,7 +292,7 @@ async def queue_report_ai_finalization(
         )
 
     except Exception as exc:
-        report.ai_status = "failed"
+        report.ai_status = ReportAIStatus.failed.value
         report.updated_at = utc_now_naive()
 
         await db.flush()
@@ -302,7 +303,7 @@ async def queue_report_ai_finalization(
             error=str(exc)[:2000],
         )
 
-    report.ai_status = "finalize_queued"
+    report.ai_status = ReportAIStatus.finalize_queued.value
     report.updated_at = utc_now_naive()
 
     await db.flush()
@@ -346,10 +347,10 @@ async def reset_queued_report_ai_finalization(
             f"报告不存在：{report_id}"
         )
 
-    if report.ai_status != "finalize_queued":
+    if report.ai_status != ReportAIStatus.finalize_queued.value:
         return None
 
-    report.ai_status = "processing"
+    report.ai_status = ReportAIStatus.processing.value
     report.updated_at = utc_now_naive()
 
     await db.flush()
@@ -401,7 +402,7 @@ async def recover_stale_report_ai_finalization(
 
     now = utc_now_naive()
 
-    if report.ai_status == "finalize_queued":
+    if report.ai_status == ReportAIStatus.finalize_queued.value:
         is_stale = (
             report.updated_at is None
             or report.updated_at
@@ -411,14 +412,14 @@ async def recover_stale_report_ai_finalization(
         if not is_stale:
             return None
 
-        report.ai_status = "processing"
+        report.ai_status = ReportAIStatus.processing.value
         report.updated_at = now
 
         await db.flush()
 
         return report
 
-    if report.ai_status == "finalizing":
+    if report.ai_status == ReportAIStatus.finalizing.value:
         is_stale = (
             report.updated_at is None
             or report.updated_at
@@ -436,9 +437,9 @@ async def recover_stale_report_ai_finalization(
             report.ai_retry_count
             >= max_finalization_retries
         ):
-            report.ai_status = "failed"
+            report.ai_status = ReportAIStatus.failed.value
         else:
-            report.ai_status = "processing"
+            report.ai_status = ReportAIStatus.processing.value
 
         report.updated_at = now
 
@@ -490,12 +491,12 @@ async def claim_report_ai_finalization(
             status="not_found",
         )
 
-    if report.ai_status == "success":
+    if report.ai_status == ReportAIStatus.success.value:
         return ReportAIFinalizationClaim(
             status="skipped",
         )
 
-    if report.ai_status == "finalizing":
+    if report.ai_status == ReportAIStatus.finalizing.value:
         return ReportAIFinalizationClaim(
             status="skipped",
         )
@@ -525,14 +526,14 @@ async def claim_report_ai_finalization(
         chunk
         for chunk in chunks
         if (
-            chunk.status == "failed"
+            chunk.status == AIChunkStatus.failed.value
             and chunk.retry_count
             >= max_chunk_retries
         )
     ]
 
     if exhausted_chunks:
-        report.ai_status = "failed"
+        report.ai_status = ReportAIStatus.failed.value
         report.updated_at = utc_now_naive()
 
         await db.flush()
@@ -552,7 +553,7 @@ async def claim_report_ai_finalization(
 
     # 只要还有一个 chunk 没成功，就不能最终合并。
     if any(
-        chunk.status != "success"
+        chunk.status != AIChunkStatus.success.value
         for chunk in chunks
     ):
         return ReportAIFinalizationClaim(
@@ -571,7 +572,7 @@ async def claim_report_ai_finalization(
 
     # Report 行锁保证多个最后完成的 chunk
     # 同时尝试 finalization 时只有一个能 claim。
-    report.ai_status = "finalizing"
+    report.ai_status = ReportAIStatus.finalizing.value
     report.updated_at = utc_now_naive()
 
     await db.flush()
@@ -634,10 +635,10 @@ async def complete_report_ai_finalization(
         )
 
     # 已成功的报告不允许被迟到结果覆盖。
-    if report.ai_status == "success":
+    if report.ai_status == ReportAIStatus.success.value:
         return report
 
-    if report.ai_status != "finalizing":
+    if report.ai_status != ReportAIStatus.finalizing.value:
         raise ValueError(
             "只有 finalizing 状态的报告 "
             "才能完成 AI 收尾，"
@@ -650,7 +651,7 @@ async def complete_report_ai_finalization(
     report.summary = summary
     report.commentary = commentary
 
-    report.ai_status = "success"
+    report.ai_status = ReportAIStatus.success.value
     report.ai_retry_count = 0
     report.ai_generated_at = now
     report.updated_at = now
@@ -693,10 +694,10 @@ async def save_report_ai_partial_finalization(
             f"报告不存在：{report_id}"
         )
 
-    if report.ai_status == "success":
+    if report.ai_status == ReportAIStatus.success.value:
         return report
 
-    if report.ai_status != "finalizing":
+    if report.ai_status != ReportAIStatus.finalizing.value:
         raise ValueError(
             "只有 finalizing 状态的报告 "
             "才能保存 AI 部分收尾结果，"
@@ -713,7 +714,7 @@ async def save_report_ai_partial_finalization(
     if commentary:
         report.commentary = commentary
 
-    report.ai_status = "failed"
+    report.ai_status = ReportAIStatus.failed.value
     report.ai_retry_count = (
         report.ai_retry_count or 0
     ) + 1
@@ -756,17 +757,17 @@ async def fail_report_ai_finalization(
         )
 
     # 迟到的失败结果不能覆盖 success。
-    if report.ai_status == "success":
+    if report.ai_status == ReportAIStatus.success.value:
         return report
 
-    if report.ai_status != "finalizing":
+    if report.ai_status != ReportAIStatus.finalizing.value:
         raise ValueError(
             "只有 finalizing 状态的报告 "
             "才能标记 finalizer failed，"
             f"当前状态：{report.ai_status}"
         )
 
-    report.ai_status = "failed"
+    report.ai_status = ReportAIStatus.failed.value
 
     report.ai_retry_count = (
         report.ai_retry_count or 0

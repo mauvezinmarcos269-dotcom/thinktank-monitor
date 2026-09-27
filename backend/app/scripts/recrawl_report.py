@@ -5,6 +5,7 @@ import sys
 
 from sqlalchemy import select
 
+from app.core.status import ReportAIStatus, ReportCrawlStatus
 from app.db.session import AsyncSessionLocal
 from app.models.report import Report
 from app.workers.celery_app import celery_app
@@ -49,10 +50,10 @@ async def reset_report(
         report.ai_generated_at = None
 
         # 恢复为待抓取状态
-        report.crawl_status = "pending"
+        report.crawl_status = ReportCrawlStatus.pending.value
 
         # 正文被清空后，AI 分析结果也应重新生成
-        report.ai_status = "pending"
+        report.ai_status = ReportAIStatus.pending.value
         report.ai_retry_count = 0
 
         await db.commit()

@@ -3,6 +3,7 @@ import asyncio
 import json
 import sys
 
+from app.core.status import AIChunkStatus
 from app.db.session import AsyncSessionLocal
 from app.models.report_ai_chunk import ReportAIChunk
 from app.services.ai.report_ai_chunk_runner import run_report_ai_chunk
@@ -19,10 +20,10 @@ async def reset_chunk_for_retry(
         if chunk is None:
             return "not_found"
 
-        if chunk.status == "success":
+        if chunk.status == AIChunkStatus.success.value:
             return "success"
 
-        chunk.status = "failed"
+        chunk.status = AIChunkStatus.failed.value
         chunk.last_error = "Manual chunk rerun requested"
         chunk.updated_at = utc_now_naive()
 

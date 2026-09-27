@@ -1,18 +1,26 @@
-from typing import Annotated
+from io import BytesIO
+from typing import Annotated, Literal
 from urllib.parse import quote
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_roles
+from app.core.content_kind import ReportContentKind
+from app.core.status import ReportAIStatus, ReportCrawlStatus, ReportReviewStatus
 from app.db.session import get_db
 from app.models.user import RoleEnum, User
 from app.schemas.ai_report import AIProgressRead, ManualAIResponse
 from app.schemas.report import (
     ManualCrawlResponse,
+    ReportBatchExportRequest,
+    ReportBatchReviewResponse,
+    ReportBatchReviewUpdate,
     ReportCreate,
     ReportListResponse,
     ReportRead,
+    ReportReviewEventRead,
     ReportUpdate,
 )
 from app.services import report_service
@@ -55,15 +63,138 @@ async def get_reports(
     _: Annotated[User, Depends(get_current_user)],
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    review_status: ReportReviewStatus | None = None,
+    ai_status: ReportAIStatus | None = None,
+    content_kind: ReportContentKind | None = None,
+    deliverable_status: Literal["complete", "partial", "empty"] | None = None,
+    keyword: Annotated[str | None, Query(max_length=200)] = None,
+    think_tank_id: Annotated[int | None, Query(gt=0)] = None,
+    source_id: Annotated[int | None, Query(gt=0)] = None,
 ) -> ReportListResponse:
-    reports = await report_service.get_reports(db, skip=skip, limit=limit)
-    total = await report_service.count_reports(db)
+    reports = await report_service.get_reports(
+        db,
+        skip=skip,
+        limit=limit,
+        review_status=review_status,
+        ai_status=ai_status,
+        content_kind=content_kind,
+        deliverable_status=deliverable_status,
+        keyword=keyword,
+        think_tank_id=think_tank_id,
+        source_id=source_id,
+    )
+    total = await report_service.count_reports(
+        db,
+        review_status=review_status,
+        ai_status=ai_status,
+        content_kind=content_kind,
+        deliverable_status=deliverable_status,
+        keyword=keyword,
+        think_tank_id=think_tank_id,
+        source_id=source_id,
+    )
 
     return ReportListResponse(
         items=reports,
         total=total,
         skip=skip,
         limit=limit,
+    )
+
+
+@router.patch(
+    "/batch-review",
+    response_model=ReportBatchReviewResponse,
+    summary="批量更新报告复核状态",
+)
+async def batch_update_report_review_status(
+    data: ReportBatchReviewUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.admin))],
+) -> ReportBatchReviewResponse:
+    updated_reports = []
+    not_found_ids = []
+
+    for report_id in dict.fromkeys(data.report_ids):
+        report = await report_service.update_report(
+            db,
+            report_id,
+            ReportUpdate(review_status=data.review_status),
+            reviewer_id=current_user.id,
+        )
+
+        if report is None:
+            not_found_ids.append(report_id)
+        else:
+            updated_reports.append(report)
+
+    return ReportBatchReviewResponse(
+        items=updated_reports,
+        updated_count=len(updated_reports),
+        not_found_ids=not_found_ids,
+    )
+
+
+@router.post(
+    "/batch-export",
+    summary="批量导出报告 AI 成果压缩包",
+)
+async def batch_export_report_results(
+    data: ReportBatchExportRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    report_ids = list(dict.fromkeys(data.report_ids))
+    extension = "docx" if data.export_format == "docx" else "md"
+    not_found_ids: list[int] = []
+    exported_count = 0
+    archive_buffer = BytesIO()
+
+    with ZipFile(archive_buffer, "w", ZIP_DEFLATED) as archive:
+        for report_id in report_ids:
+            report = await report_service.get_report(db, report_id)
+
+            if report is None:
+                not_found_ids.append(report_id)
+                continue
+
+            filename = build_export_filename(report.id, report.title, extension)
+            content = (
+                build_report_docx(report)
+                if data.export_format == "docx"
+                else build_report_markdown(report).encode("utf-8")
+            )
+            archive.writestr(filename, content)
+            exported_count += 1
+
+        if not_found_ids:
+            archive.writestr(
+                "missing-report-ids.txt",
+                "\n".join(str(report_id) for report_id in not_found_ids),
+            )
+
+    if exported_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="所选报告不存在",
+        )
+
+    archive_buffer.seek(0)
+    filename = (
+        f"thinktank-reports-{data.export_format}-"
+        f"{utc_now_naive():%Y%m%d-%H%M%S}.zip"
+    )
+    encoded_filename = quote(filename)
+
+    return Response(
+        content=archive_buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                f"filename*=UTF-8''{encoded_filename}"
+            ),
+        },
     )
 
 
@@ -107,6 +238,38 @@ async def get_report_ai_progress_endpoint(
         )
 
     return progress
+
+
+@router.get(
+    "/{report_id}/review-events",
+    response_model=list[ReportReviewEventRead],
+    summary="获取报告复核历史",
+)
+async def get_report_review_events(
+    report_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_user)],
+) -> list[ReportReviewEventRead]:
+    events = await report_service.get_report_review_events(db, report_id)
+
+    if events is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="报告不存在",
+        )
+
+    return [
+        ReportReviewEventRead(
+            id=event.id,
+            report_id=event.report_id,
+            review_status=event.review_status,
+            review_note=event.review_note,
+            reviewer_id=event.reviewer_id,
+            reviewer_email=event.reviewer.email if event.reviewer else None,
+            created_at=event.created_at,
+        )
+        for event in events
+    ]
 
 
 @router.get(
@@ -204,16 +367,18 @@ async def retry_report_ai(
         )
 
     if report.ai_status in {
-        "processing",
-        "finalize_queued",
-        "finalizing",
+        ReportAIStatus.processing.value,
+        ReportAIStatus.finalize_queued.value,
+        ReportAIStatus.finalizing.value,
     }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"报告 {report_id} 的 AI 任务正在处理中，请勿重复提交。",
         )
 
-    report.ai_status = "pending"
+    previous_review_status = report.review_status
+    report.ai_status = ReportAIStatus.pending.value
+    report.review_status = ReportReviewStatus.pending_review.value
     report.updated_at = utc_now_naive()
     await db.commit()
     await db.refresh(report)
@@ -225,7 +390,8 @@ async def retry_report_ai(
             report.id,
         )
     except Exception as exc:
-        report.ai_status = "failed"
+        report.ai_status = ReportAIStatus.failed.value
+        report.review_status = previous_review_status
         report.updated_at = utc_now_naive()
         await db.commit()
         raise HTTPException(
@@ -237,6 +403,7 @@ async def retry_report_ai(
         message="报告 AI 分块处理任务已提交。",
         report_id=report.id,
         ai_status=report.ai_status,
+        review_status=report.review_status,
         task_id=task.id,
         updated_at=report.updated_at,
     )
@@ -251,12 +418,13 @@ async def update_report(
     report_id: int,
     data: ReportUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(RoleEnum.admin))],
+    current_user: Annotated[User, Depends(require_roles(RoleEnum.admin))],
 ):
     report = await report_service.update_report(
         db,
         report_id,
         data,
+        reviewer_id=current_user.id,
     )
 
     if report is None:
@@ -312,14 +480,14 @@ async def trigger_fetch_content(
         )
 
     # 2. 任务执行期间禁止重复提交，避免多个 Worker 同时抓取同一 URL
-    if report.crawl_status == "running":
+    if report.crawl_status == ReportCrawlStatus.running.value:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"报告 {report_id} 正在抓取中，请勿重复提交",
         )
 
     # 3. 将状态重置为 pending 并落库
-    report.crawl_status = "pending"
+    report.crawl_status = ReportCrawlStatus.pending.value
     report.crawl_error = None
     report.updated_at = utc_now_naive()
     await db.commit()
@@ -329,7 +497,7 @@ async def trigger_fetch_content(
     try:
         task = fetch_report_content_task.delay(report_id)
     except Exception as exc:
-        report.crawl_status = "failed"
+        report.crawl_status = ReportCrawlStatus.failed.value
         report.crawl_error = f"任务投递失败: {str(exc)[:1800]}"
         report.updated_at = utc_now_naive()
         await db.commit()

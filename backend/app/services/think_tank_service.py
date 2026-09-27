@@ -63,7 +63,13 @@ class ThinkTankService:
         if is_active is not None:
             statement = statement.where(ThinkTank.is_active == is_active)
 
-        statement = statement.order_by(ThinkTank.is_key.desc(), ThinkTank.name.asc()).offset(skip).limit(limit)
+        statement = statement.order_by(
+            ThinkTank.priority_tier.asc(),
+            ThinkTank.is_verified.desc(),
+            ThinkTank.is_key.desc(),
+            ThinkTank.country.asc(),
+            ThinkTank.name.asc(),
+        ).offset(skip).limit(limit)
         result = await db.execute(statement)
         return list(result.scalars().all())
 
@@ -95,6 +101,8 @@ class ThinkTankService:
                 ~active_source_exists,
             )
             .order_by(
+                ThinkTank.priority_tier.asc(),
+                ThinkTank.is_verified.desc(),
                 ThinkTank.is_key.desc(),
                 ThinkTank.country.asc(),
                 ThinkTank.name.asc(),
@@ -150,8 +158,11 @@ class ThinkTankService:
             website=normalize_url(payload.website),
             description=payload.description.strip() if payload.description else None,
             organization_type=payload.organization_type,
+            priority_tier=payload.priority_tier,
+            region_focus=payload.region_focus,
             parent_id=payload.parent_id,
             is_key=payload.is_key,
+            is_verified=payload.is_verified,
             is_active=payload.is_active,
         )
 

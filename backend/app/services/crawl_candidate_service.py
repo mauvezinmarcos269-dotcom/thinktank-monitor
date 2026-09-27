@@ -6,6 +6,8 @@ from io import StringIO
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.content_kind import get_content_kind_label
+from app.core.status import CrawlCandidateSkipReason, CrawlCandidateStatus
 from app.models.crawl_candidate import CrawlCandidate
 from app.schemas.institution import (
     CrawlCandidateCountRead,
@@ -14,9 +16,9 @@ from app.schemas.institution import (
     CrawlCandidateStatisticsResponse,
 )
 
-CANDIDATE_STATUS_DISCOVERED = "discovered"
-CANDIDATE_STATUS_SKIPPED = "skipped"
-CANDIDATE_STATUS_SAVED = "saved"
+CANDIDATE_STATUS_DISCOVERED = CrawlCandidateStatus.discovered.value
+CANDIDATE_STATUS_SKIPPED = CrawlCandidateStatus.skipped.value
+CANDIDATE_STATUS_SAVED = CrawlCandidateStatus.saved.value
 
 CANDIDATE_STATUS_LABELS = {
     CANDIDATE_STATUS_DISCOVERED: "已发现",
@@ -25,15 +27,14 @@ CANDIDATE_STATUS_LABELS = {
 }
 
 SKIP_REASON_LABELS = {
-    "invalid_url": "无效 URL",
-    "duplicate_in_feed": "同一来源内重复",
-    "duplicate_existing": "已入库重复",
-    "document_failed": "PDF 获取或页数/文本检查失败",
-    "relevance_failed": "涉华判断失败",
-    "non_china_related": "非涉华",
-    "concurrent_duplicate": "并发重复入库",
+    CrawlCandidateSkipReason.invalid_url.value: "无效 URL",
+    CrawlCandidateSkipReason.duplicate_in_feed.value: "同一来源内重复",
+    CrawlCandidateSkipReason.duplicate_existing.value: "已入库重复",
+    CrawlCandidateSkipReason.document_failed.value: "PDF 获取或页数/文本检查失败",
+    CrawlCandidateSkipReason.relevance_failed.value: "涉华判断失败",
+    CrawlCandidateSkipReason.non_china_related.value: "非涉华",
+    CrawlCandidateSkipReason.concurrent_duplicate.value: "并发重复入库",
 }
-
 
 def get_skip_reason_label(code: str) -> str:
     return SKIP_REASON_LABELS.get(code, code)
@@ -148,10 +149,22 @@ class CrawlCandidateService:
             .group_by(CrawlCandidate.skip_reason_code, CrawlCandidate.skip_reason_label)
             .order_by(func.count(CrawlCandidate.id).desc())
         )
+        content_kind_statement = (
+            self._apply_filters(
+                select(
+                    CrawlCandidate.content_kind,
+                    func.count(CrawlCandidate.id),
+                ),
+                **base_filters,
+            )
+            .group_by(CrawlCandidate.content_kind)
+            .order_by(func.count(CrawlCandidate.id).desc())
+        )
 
         total = await db.scalar(total_statement)
         status_rows = (await db.execute(status_statement)).all()
         reason_rows = (await db.execute(reason_statement)).all()
+        content_kind_rows = (await db.execute(content_kind_statement)).all()
 
         return CrawlCandidateStatisticsResponse(
             total=int(total or 0),
@@ -170,6 +183,14 @@ class CrawlCandidateService:
                     count=int(count),
                 )
                 for reason_code, reason_label, count in reason_rows
+            ],
+            by_content_kind=[
+                CrawlCandidateCountRead(
+                    code=content_kind,
+                    label=get_content_kind_label(content_kind),
+                    count=int(count),
+                )
+                for content_kind, count in content_kind_rows
             ],
         )
 
@@ -208,6 +229,7 @@ class CrawlCandidateService:
                 "状态",
                 "跳过原因代码",
                 "跳过原因",
+                "内容类型",
                 "页数",
                 "非空页数",
                 "是否涉华",
@@ -231,6 +253,7 @@ class CrawlCandidateService:
                     get_candidate_status_label(candidate.status),
                     candidate.skip_reason_code or "",
                     candidate.skip_reason_label or "",
+                    candidate.content_kind or "",
                     candidate.page_count or "",
                     candidate.non_empty_page_count or "",
                     self._format_bool(candidate.is_china_related),
@@ -296,6 +319,7 @@ class CrawlCandidateService:
             page_count=candidate.page_count,
             non_empty_page_count=candidate.non_empty_page_count,
             pdf_byte_length=candidate.pdf_byte_length,
+            content_kind=candidate.content_kind,
             created_at=candidate.created_at,
             updated_at=candidate.updated_at,
         )

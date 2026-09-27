@@ -17,6 +17,7 @@ async def list_notifications(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     unread_only: bool = False,
+    event_type: str | None = None,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
@@ -24,6 +25,7 @@ async def list_notifications(
         db,
         user_id=current_user.id,
         unread_only=unread_only,
+        event_type=event_type,
         skip=skip,
         limit=limit,
     )

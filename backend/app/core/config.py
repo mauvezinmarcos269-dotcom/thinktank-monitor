@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     LLM_READ_TIMEOUT_SECONDS: float = Field(default=300.0, gt=0)
     LLM_WRITE_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
     LLM_POOL_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0)
-    AI_TRANSLATION_CHUNK_LENGTH: int = Field(default=5000, ge=1000, le=20000)
+    AI_TRANSLATION_CHUNK_LENGTH: int = Field(default=3000, ge=1000, le=20000)
     AI_ANALYSIS_CHUNK_LENGTH: int = Field(default=16000, ge=4000, le=40000)
     AI_TRANSLATION_MAX_TOKENS: int = Field(default=9000, ge=1000, le=20000)
 
@@ -94,9 +94,12 @@ class Settings(BaseSettings):
         default=30,
         gt=0,
     )
+    CRAWLER_MIN_REPORT_PAGE_COUNT: int = Field(default=20, ge=1)
+    CRAWLER_MIN_WEB_ARTICLE_CONTENT_LENGTH: int = Field(default=3000, ge=500)
 
     NOTIFICATION_DAILY_SUMMARY_ENABLED: bool = True
     NOTIFICATION_SUMMARY_LOOKBACK_HOURS: int = Field(default=24, ge=1, le=168)
+    NOTIFICATION_INSTANT_ALERTS_ENABLED: bool = False
     NOTIFICATION_EMAIL_ENABLED: bool = False
     NOTIFICATION_EMAIL_TO: str = ""
     NOTIFICATION_SMTP_HOST: str = ""

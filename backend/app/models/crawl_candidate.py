@@ -122,6 +122,12 @@ class CrawlCandidate(Base):
         nullable=True,
     )
 
+    content_kind: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+        index=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,

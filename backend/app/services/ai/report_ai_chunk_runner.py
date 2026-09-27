@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 
 from app.core.llm import SiliconFlowClient
+from app.core.status import AIChunkStatus
 from app.db.session import AsyncSessionLocal
 from app.services.ai.report_ai_chunk_service import (
     claim_report_ai_chunk,
@@ -146,7 +147,7 @@ async def run_report_ai_chunk(
 
         # 如果出现迟到的失败结果，而数据库中的块
         # 已经成功，则不能把它报告成 failed。
-        if final_status == "success":
+        if final_status == AIChunkStatus.success.value:
             return AIChunkRunResult(
                 chunk_id=chunk_id,
                 status="skipped",

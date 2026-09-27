@@ -1,23 +1,34 @@
-import asyncio
-import logging
-import smtplib
 from datetime import UTC, datetime, timedelta
-from email.message import EmailMessage
 
-import httpx
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.crawl_candidate import CrawlCandidate
+from app.core.content_kind import get_content_kind_label
+from app.core.status import NotificationEventType
 from app.models.notification import Notification
 from app.models.report import Report
-from app.models.source import CrawlStatusEnum, Source
-from app.models.think_tank import ThinkTank
-from app.models.user import User
-from app.services.crawl_candidate_service import get_candidate_status_label
+from app.models.source import Source
+from app.models.think_tank import PriorityTierEnum, ThinkTank
+from app.models.user import RoleEnum, User
+from app.services.notification_dispatcher import (
+    dispatch_external_notification,
+    dispatch_external_summary,
+    send_email_summary,
+    send_feishu_summary,
+    send_wecom_summary,
+)
+from app.services.notification_summary import build_daily_summary, count_where
 
-logger = logging.getLogger(__name__)
+INSTANT_ALERT_EVENT_TYPES = {
+    NotificationEventType.report_created.value,
+    NotificationEventType.report_ai_completed.value,
+}
+
+INSTANT_ALERT_PRIORITY_TIERS = {
+    PriorityTierEnum.p0,
+    PriorityTierEnum.p1,
+}
 
 
 class NotificationService:
@@ -53,6 +64,61 @@ class NotificationService:
         db.add_all(notifications)
         await db.flush()
 
+        await self.dispatch_instant_report_alert_if_needed(
+            db,
+            event_type=event_type,
+            title=title,
+            message=message,
+            report_id=report_id,
+        )
+
+        return notifications
+
+    async def create_for_roles(
+        self,
+        db: AsyncSession,
+        *,
+        roles: set[RoleEnum],
+        event_type: str,
+        title: str,
+        message: str,
+        report_id: int | None = None,
+    ) -> list[Notification]:
+        if not roles:
+            return []
+
+        result = await db.execute(
+            select(User.id).where(
+                User.is_active.is_(True),
+                User.role.in_(roles),
+            )
+        )
+
+        user_ids = list(result.scalars().all())
+
+        notifications = [
+            Notification(
+                user_id=user_id,
+                report_id=report_id,
+                event_type=event_type,
+                title=title[:255],
+                message=message,
+                is_read=False,
+            )
+            for user_id in user_ids
+        ]
+
+        db.add_all(notifications)
+        await db.flush()
+
+        await self.dispatch_instant_report_alert_if_needed(
+            db,
+            event_type=event_type,
+            title=title,
+            message=message,
+            report_id=report_id,
+        )
+
         return notifications
 
     async def create_daily_summary(
@@ -64,7 +130,7 @@ class NotificationService:
         since = datetime.now(UTC).replace(tzinfo=None) - timedelta(
             hours=lookback_hours
         )
-        title, message, metrics = await self._build_summary(
+        summary = await build_daily_summary(
             db,
             since=since,
             lookback_hours=lookback_hours,
@@ -72,17 +138,20 @@ class NotificationService:
 
         notifications = await self.create_for_all_active_users(
             db,
-            event_type="daily_summary",
-            title=title,
-            message=message,
+            event_type=NotificationEventType.daily_summary.value,
+            title=summary.title,
+            message=summary.message,
         )
         await db.commit()
-        await self.dispatch_external_summary(title=title, message=message)
+        await self.dispatch_external_summary(
+            title=summary.title,
+            message=summary.message,
+        )
 
         return {
             "status": "success",
             "created_notifications": len(notifications),
-            **metrics,
+            **summary.metrics,
         }
 
     async def dispatch_external_summary(
@@ -91,41 +160,100 @@ class NotificationService:
         title: str,
         message: str,
     ) -> None:
-        tasks = []
+        await dispatch_external_summary(
+            title=title,
+            message=message,
+        )
 
-        if settings.NOTIFICATION_EMAIL_ENABLED:
-            tasks.append(
-                asyncio.to_thread(
-                    self._send_email_summary,
-                    title,
-                    message,
-                )
-            )
-
-        if settings.NOTIFICATION_WECOM_WEBHOOK_URL:
-            tasks.append(
-                self._send_wecom_summary(
-                    title=title,
-                    message=message,
-                )
-            )
-
-        if settings.NOTIFICATION_FEISHU_WEBHOOK_URL:
-            tasks.append(
-                self._send_feishu_summary(
-                    title=title,
-                    message=message,
-                )
-            )
-
-        if not tasks:
+    async def dispatch_instant_report_alert_if_needed(
+        self,
+        db: AsyncSession,
+        *,
+        event_type: str,
+        title: str,
+        message: str,
+        report_id: int | None,
+    ) -> None:
+        if not self._should_consider_instant_alert(
+            event_type=event_type,
+            report_id=report_id,
+        ):
             return
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        alert_context = await self._get_report_alert_context(
+            db,
+            report_id=report_id,
+        )
 
-        for result in results:
-            if isinstance(result, Exception):
-                logger.warning("通知摘要外发失败：%s", result)
+        if alert_context is None:
+            return
+
+        report_title, report_url, think_tank_name, priority_tier = alert_context
+
+        if priority_tier not in INSTANT_ALERT_PRIORITY_TIERS:
+            return
+
+        alert_message = "\n".join(
+            [
+                f"来源：{think_tank_name}",
+                f"报告：{report_title}",
+                f"链接：{report_url}",
+                "",
+                message,
+            ]
+        )
+
+        await dispatch_external_notification(
+            title=title,
+            message=alert_message,
+        )
+
+    def _should_consider_instant_alert(
+        self,
+        *,
+        event_type: str,
+        report_id: int | None,
+    ) -> bool:
+        return (
+            settings.NOTIFICATION_INSTANT_ALERTS_ENABLED
+            and report_id is not None
+            and event_type in INSTANT_ALERT_EVENT_TYPES
+        )
+
+    async def _get_report_alert_context(
+        self,
+        db: AsyncSession,
+        *,
+        report_id: int | None,
+    ) -> tuple[str, str, str, PriorityTierEnum] | None:
+        if report_id is None:
+            return None
+
+        result = await db.execute(
+            select(
+                Report.title,
+                Report.url,
+                ThinkTank.name,
+                ThinkTank.priority_tier,
+            )
+            .join(Source, Source.id == Report.source_id)
+            .join(ThinkTank, ThinkTank.id == Source.think_tank_id)
+            .where(Report.id == report_id)
+        )
+
+        row = result.one_or_none()
+
+        if row is None:
+            return None
+
+        report_title, report_url, think_tank_name, priority_tier = row
+
+        return (
+            report_title,
+            report_url,
+            think_tank_name,
+            priority_tier,
+        )
 
     async def get_for_user(
         self,
@@ -133,6 +261,7 @@ class NotificationService:
         *,
         user_id: int,
         unread_only: bool = False,
+        event_type: str | None = None,
         skip: int = 0,
         limit: int = 50,
     ) -> list[Notification]:
@@ -140,6 +269,9 @@ class NotificationService:
 
         if unread_only:
             statement = statement.where(Notification.is_read.is_(False))
+
+        if event_type:
+            statement = statement.where(Notification.event_type == event_type)
 
         statement = (
             statement.order_by(Notification.created_at.desc(), Notification.id.desc())
@@ -218,160 +350,33 @@ class NotificationService:
         since: datetime,
         lookback_hours: int,
     ) -> tuple[str, str, dict[str, int]]:
-        new_reports = await self._count_where(
+        summary = await build_daily_summary(
             db,
-            Report,
-            Report.created_at >= since,
+            since=since,
+            lookback_hours=lookback_hours,
         )
-        failed_sources = await self._count_where(
-            db,
-            Source,
-            Source.last_crawl_status == CrawlStatusEnum.failed,
-        )
-        saved_candidates = await self._count_where(
-            db,
-            CrawlCandidate,
-            CrawlCandidate.status == "saved",
-            CrawlCandidate.created_at >= since,
-        )
-        skipped_candidates = await self._count_where(
-            db,
-            CrawlCandidate,
-            CrawlCandidate.status == "skipped",
-            CrawlCandidate.created_at >= since,
-        )
-        candidate_rows = (
-            await db.execute(
-                select(CrawlCandidate.status, func.count(CrawlCandidate.id))
-                .where(CrawlCandidate.created_at >= since)
-                .group_by(CrawlCandidate.status)
-                .order_by(CrawlCandidate.status.asc())
-            )
-        ).all()
-        failure_rows = (
-            await db.execute(
-                select(Source, ThinkTank.name)
-                .join(ThinkTank, ThinkTank.id == Source.think_tank_id)
-                .where(Source.last_crawl_status == CrawlStatusEnum.failed)
-                .order_by(Source.last_crawled_at.desc().nullslast(), Source.id.desc())
-                .limit(5)
-            )
-        ).all()
-        recent_report_rows = (
-            await db.execute(
-                select(Report.title)
-                .where(Report.created_at >= since)
-                .order_by(Report.created_at.desc(), Report.id.desc())
-                .limit(5)
-            )
-        ).scalars().all()
-
-        title = f"智库监测 {lookback_hours} 小时摘要"
-        candidate_summary = "、".join(
-            f"{get_candidate_status_label(status)} {int(count)}"
-            for status, count in candidate_rows
-        ) or "暂无候选报告更新"
-        report_lines = "\n".join(f"- {report_title}" for report_title in recent_report_rows)
-        failure_lines = "\n".join(
-            f"- {think_tank_name}：{source.last_error or '最近一次抓取失败'}"
-            for source, think_tank_name in failure_rows
-        )
-        message_parts = [
-            f"过去 {lookback_hours} 小时新增入库报告 {new_reports} 篇。",
-            f"候选报告统计：{candidate_summary}。",
-            f"当前失败来源 {failed_sources} 个。",
-        ]
-
-        if report_lines:
-            message_parts.append(f"最新入库报告：\n{report_lines}")
-
-        if failure_lines:
-            message_parts.append(f"最近失败原因：\n{failure_lines}")
-
-        return (
-            title,
-            "\n\n".join(message_parts),
-            {
-                "new_reports": new_reports,
-                "saved_candidates": saved_candidates,
-                "skipped_candidates": skipped_candidates,
-                "failed_sources": failed_sources,
-            },
-        )
+        return summary.title, summary.message, summary.metrics
 
     async def _count_where(self, db: AsyncSession, model: type, *conditions) -> int:
-        statement = select(func.count(model.id))
+        return await count_where(db, model, *conditions)
 
-        for condition in conditions:
-            statement = statement.where(condition)
-
-        value = await db.scalar(statement)
-        return int(value or 0)
+    def _format_content_kind(self, value: str | None) -> str:
+        return get_content_kind_label(value)
 
     def _send_email_summary(self, title: str, message: str) -> None:
-        recipients = [
-            item.strip()
-            for item in settings.NOTIFICATION_EMAIL_TO.split(",")
-            if item.strip()
-        ]
-
-        if (
-            not recipients
-            or not settings.NOTIFICATION_SMTP_HOST
-            or not settings.NOTIFICATION_SMTP_FROM
-        ):
-            logger.info("邮件通知未配置完整，跳过摘要邮件发送。")
-            return
-
-        email = EmailMessage()
-        email["Subject"] = title
-        email["From"] = settings.NOTIFICATION_SMTP_FROM
-        email["To"] = ", ".join(recipients)
-        email.set_content(message)
-
-        with smtplib.SMTP(
-            settings.NOTIFICATION_SMTP_HOST,
-            settings.NOTIFICATION_SMTP_PORT,
-            timeout=20,
-        ) as smtp:
-            if settings.NOTIFICATION_SMTP_USE_TLS:
-                smtp.starttls()
-
-            if settings.NOTIFICATION_SMTP_USERNAME:
-                smtp.login(
-                    settings.NOTIFICATION_SMTP_USERNAME,
-                    settings.NOTIFICATION_SMTP_PASSWORD,
-                )
-
-            smtp.send_message(email)
+        send_email_summary(title, message)
 
     async def _send_wecom_summary(self, *, title: str, message: str) -> None:
-        payload = {
-            "msgtype": "text",
-            "text": {
-                "content": f"{title}\n\n{message}",
-            },
-        }
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
-                settings.NOTIFICATION_WECOM_WEBHOOK_URL,
-                json=payload,
-            )
-            response.raise_for_status()
+        await send_wecom_summary(
+            title=title,
+            message=message,
+        )
 
     async def _send_feishu_summary(self, *, title: str, message: str) -> None:
-        payload = {
-            "msg_type": "text",
-            "content": {
-                "text": f"{title}\n\n{message}",
-            },
-        }
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
-                settings.NOTIFICATION_FEISHU_WEBHOOK_URL,
-                json=payload,
-            )
-            response.raise_for_status()
+        await send_feishu_summary(
+            title=title,
+            message=message,
+        )
 
 
 notification_service = NotificationService()

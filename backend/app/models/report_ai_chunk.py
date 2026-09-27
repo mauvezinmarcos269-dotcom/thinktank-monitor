@@ -11,6 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.status import AIChunkStatus
 from app.models.base import Base
 
 
@@ -101,8 +102,8 @@ class ReportAIChunk(Base):
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="pending",
-        server_default="pending",
+        default=AIChunkStatus.pending.value,
+        server_default=AIChunkStatus.pending.value,
         index=True,
     )
 

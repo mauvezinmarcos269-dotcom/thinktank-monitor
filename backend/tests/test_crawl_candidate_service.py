@@ -6,6 +6,7 @@ from app.services.crawl_candidate_service import (
     CANDIDATE_STATUS_SKIPPED,
     CrawlCandidateService,
     get_candidate_status_label,
+    get_content_kind_label,
     get_skip_reason_label,
     mark_candidate_saved,
     mark_candidate_skipped,
@@ -18,6 +19,12 @@ def test_get_skip_reason_label_returns_chinese_label() -> None:
 
 def test_get_candidate_status_label_returns_chinese_label() -> None:
     assert get_candidate_status_label("saved") == "已入库"
+
+
+def test_get_content_kind_label_returns_chinese_label() -> None:
+    assert get_content_kind_label("pdf") == "PDF 报告"
+    assert get_content_kind_label("web_article") == "网页长文"
+    assert get_content_kind_label(None) == "未知类型"
 
 
 def test_mark_candidate_skipped_sets_status_reason_and_error() -> None:

@@ -19,6 +19,7 @@ from app.schemas.institution import (
     SourceUpdate,
 )
 from app.services.source_diagnosis_service import classify_source_diagnosis
+from app.services.source_rollout_policy import get_source_rollout_policy
 
 
 class SourceService:
@@ -63,6 +64,10 @@ class SourceService:
         return list(result.scalars().all())
 
     async def create(self, db: AsyncSession, think_tank_id: int, payload: SourceCreate) -> Source:
+        think_tank = await db.get(ThinkTank, think_tank_id)
+        if think_tank is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="智库机构不存在。")
+
         source = Source(
             think_tank_id=think_tank_id,
             source_type=payload.source_type,
@@ -121,8 +126,12 @@ class SourceService:
         statement = (
             select(
                 Source,
+                ThinkTank.key.label("think_tank_key"),
                 ThinkTank.name.label("think_tank_name"),
                 ThinkTank.country.label("think_tank_country"),
+                ThinkTank.priority_tier.label("think_tank_priority_tier"),
+                ThinkTank.region_focus.label("think_tank_region_focus"),
+                ThinkTank.is_verified.label("think_tank_is_verified"),
                 report_stats.c.report_count,
                 report_stats.c.latest_report_created_at,
             )
@@ -148,12 +157,25 @@ class SourceService:
         )
         items: list[SourceHealthRead] = []
 
-        for source, think_tank_name, think_tank_country, report_count, latest_report_created_at in rows:
+        for (
+            source,
+            think_tank_key,
+            think_tank_name,
+            think_tank_country,
+            think_tank_priority_tier,
+            think_tank_region_focus,
+            think_tank_is_verified,
+            report_count,
+            latest_report_created_at,
+        ) in rows:
             health_status, health_reason = self._derive_health(source)
             diagnosis = classify_source_diagnosis(
                 crawl_status=source.last_crawl_status,
                 error_text=source.last_error,
                 saved_report_count=int(report_count or 0),
+            )
+            rollout_policy = get_source_rollout_policy(
+                str(think_tank_key)
             )
             items.append(
                 SourceHealthRead(
@@ -169,7 +191,11 @@ class SourceService:
                     created_at=source.created_at,
                     updated_at=source.updated_at,
                     think_tank_name=think_tank_name,
+                    think_tank_key=think_tank_key,
                     think_tank_country=think_tank_country,
+                    think_tank_priority_tier=think_tank_priority_tier,
+                    think_tank_region_focus=think_tank_region_focus,
+                    think_tank_is_verified=think_tank_is_verified,
                     latest_report_created_at=latest_report_created_at,
                     report_count=int(report_count or 0),
                     health_status=health_status,
@@ -177,6 +203,10 @@ class SourceService:
                     diagnosis_code=diagnosis.code,
                     diagnosis_label=diagnosis.label,
                     diagnosis_advice=diagnosis.advice,
+                    rollout_stage=rollout_policy.rollout_stage,
+                    document_policy=rollout_policy.document_policy,
+                    can_run_pilot_crawl=rollout_policy.can_run_pilot_crawl,
+                    rollout_advice=rollout_policy.advice,
                     recent_crawl_runs=recent_runs_by_source.get(source.id, []),
                 )
             )

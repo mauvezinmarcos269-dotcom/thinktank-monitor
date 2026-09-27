@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import SiliconFlowClient
+from app.core.status import AIChunkStatus, AIChunkType
 from app.models.report import Report
 from app.models.report_ai_chunk import ReportAIChunk
 from app.schemas.ai_report import (
@@ -128,13 +129,13 @@ def build_report_ai_chunk_specs(
 
     translation_specs = _build_chunk_specs(
         content,
-        chunk_type="translation",
+        chunk_type=AIChunkType.translation.value,
         chunks=translation_chunks,
     )
 
     analysis_specs = _build_chunk_specs(
         content,
-        chunk_type="analysis",
+        chunk_type=AIChunkType.analysis.value,
         chunks=analysis_chunks,
     )
 
@@ -272,7 +273,7 @@ async def prepare_report_ai_chunks(
             source_end=spec.source_end,
             report_content_hash=content_hash,
             output_text=None,
-            status="pending",
+            status=AIChunkStatus.pending.value,
             retry_count=0,
             last_error=None,
         )
@@ -293,8 +294,8 @@ async def prepare_report_ai_chunks(
     )
 
     type_order = {
-        "translation": 0,
-        "analysis": 1,
+        AIChunkType.translation.value: 0,
+        AIChunkType.analysis.value: 1,
     }
 
     chunks.sort(
@@ -338,11 +339,11 @@ async def get_report_ai_progress(
     chunks = list(result.scalars().all())
 
     statuses = (
-        "pending",
-        "queued",
-        "processing",
-        "success",
-        "failed",
+        AIChunkStatus.pending.value,
+        AIChunkStatus.queued.value,
+        AIChunkStatus.processing.value,
+        AIChunkStatus.success.value,
+        AIChunkStatus.failed.value,
     )
     by_type_map: dict[str, dict[str, int | str]] = {}
 
@@ -382,7 +383,11 @@ async def get_report_ai_progress(
     running_chunks = sum(
         1
         for chunk in chunks
-        if chunk.status in {"queued", "processing"}
+        if chunk.status
+        in {
+            AIChunkStatus.queued.value,
+            AIChunkStatus.processing.value,
+        }
     )
 
     return AIProgressRead(
@@ -394,12 +399,12 @@ async def get_report_ai_progress(
         completed_chunks=sum(
             1
             for chunk in chunks
-            if chunk.status == "success"
+            if chunk.status == AIChunkStatus.success.value
         ),
         failed_chunks=sum(
             1
             for chunk in chunks
-            if chunk.status == "failed"
+            if chunk.status == AIChunkStatus.failed.value
         ),
         running_chunks=running_chunks,
         latest_error=latest_error,
@@ -440,7 +445,7 @@ async def load_report_ai_chunk_execution_input(
             f"AI 分块不存在：{chunk_id}"
         )
 
-    if chunk.status != "processing":
+    if chunk.status != AIChunkStatus.processing.value:
         raise ValueError(
             "只有 processing 状态的分块 "
             "才能生成 AI 输出，"
@@ -519,7 +524,7 @@ async def generate_report_ai_chunk_output(
     """
     if (
         execution_input.chunk_type
-        == "translation"
+        == AIChunkType.translation.value
     ):
         chunk_title = (
             f"{execution_input.report_title} "
@@ -537,7 +542,7 @@ async def generate_report_ai_chunk_output(
 
     if (
         execution_input.chunk_type
-        == "analysis"
+        == AIChunkType.analysis.value
     ):
         return await generate_analysis_notes(
             client,
@@ -584,22 +589,22 @@ async def queue_report_ai_chunk(
         )
 
     if chunk.status in {
-        "queued",
-        "processing",
-        "success",
+        AIChunkStatus.queued.value,
+        AIChunkStatus.processing.value,
+        AIChunkStatus.success.value,
     }:
         return None
 
     if chunk.status not in {
-        "pending",
-        "failed",
+        AIChunkStatus.pending.value,
+        AIChunkStatus.failed.value,
     }:
         raise ValueError(
             "不支持的 AI 分块状态："
             f"{chunk.status}"
         )
 
-    chunk.status = "queued"
+    chunk.status = AIChunkStatus.queued.value
     chunk.last_error = None
     chunk.updated_at = utc_now_naive()
 
@@ -640,10 +645,10 @@ async def reset_queued_report_ai_chunk(
             f"AI 分块不存在：{chunk_id}"
         )
 
-    if chunk.status != "queued":
+    if chunk.status != AIChunkStatus.queued.value:
         return None
 
-    chunk.status = "pending"
+    chunk.status = AIChunkStatus.pending.value
     chunk.last_error = (
         "Celery enqueue failed: "
         f"{str(error)[:1900]}"
@@ -697,11 +702,11 @@ async def recover_stale_report_ai_chunk(
     now = utc_now_naive()
 
     if (
-        chunk.status == "queued"
+        chunk.status == AIChunkStatus.queued.value
         and chunk.updated_at
         < queued_stale_before
     ):
-        chunk.status = "pending"
+        chunk.status = AIChunkStatus.pending.value
 
         chunk.last_error = (
             "Stale queued AI chunk recovered"
@@ -714,11 +719,11 @@ async def recover_stale_report_ai_chunk(
         return chunk
 
     if (
-        chunk.status == "processing"
+        chunk.status == AIChunkStatus.processing.value
         and chunk.updated_at
         < processing_stale_before
     ):
-        chunk.status = "failed"
+        chunk.status = AIChunkStatus.failed.value
 
         chunk.retry_count = (
             chunk.retry_count or 0
@@ -768,22 +773,22 @@ async def claim_report_ai_chunk(
         )
 
     if chunk.status in {
-        "processing",
-        "success",
+        AIChunkStatus.processing.value,
+        AIChunkStatus.success.value,
     }:
         return None
 
     if chunk.status not in {
-        "pending",
-        "failed",
-        "queued",
+        AIChunkStatus.pending.value,
+        AIChunkStatus.failed.value,
+        AIChunkStatus.queued.value,
     }:
         raise ValueError(
             "不支持的 AI 分块状态："
             f"{chunk.status}"
         )
 
-    chunk.status = "processing"
+    chunk.status = AIChunkStatus.processing.value
     chunk.last_error = None
     chunk.updated_at = utc_now_naive()
 
@@ -822,7 +827,7 @@ async def complete_report_ai_chunk(
             f"AI 分块不存在：{chunk_id}"
         )
 
-    if chunk.status != "processing":
+    if chunk.status != AIChunkStatus.processing.value:
         raise ValueError(
             "只有 processing 状态的分块 "
             "才能标记为 success，"
@@ -830,7 +835,7 @@ async def complete_report_ai_chunk(
         )
 
     chunk.output_text = output_text
-    chunk.status = "success"
+    chunk.status = AIChunkStatus.success.value
     chunk.last_error = None
     chunk.updated_at = utc_now_naive()
 
@@ -868,17 +873,17 @@ async def fail_report_ai_chunk(
         )
 
     # 已经成功的结果不允许被迟到的失败任务覆盖。
-    if chunk.status == "success":
+    if chunk.status == AIChunkStatus.success.value:
         return chunk
 
-    if chunk.status != "processing":
+    if chunk.status != AIChunkStatus.processing.value:
         raise ValueError(
             "只有 processing 状态的分块 "
             "才能标记为 failed，"
             f"当前状态：{chunk.status}"
         )
 
-    chunk.status = "failed"
+    chunk.status = AIChunkStatus.failed.value
     chunk.retry_count = (
         chunk.retry_count or 0
     ) + 1

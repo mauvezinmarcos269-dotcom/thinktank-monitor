@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 REPORT_STYLE_CONTENT_TYPES = {
@@ -88,8 +89,27 @@ CHINA_TERMS = (
 )
 
 
+def _contains_term(value: str, term: str) -> bool:
+    if term.replace("-", "").replace(".", "").replace(" ", "").isalnum():
+        return (
+            re.search(
+                rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])",
+                value,
+            )
+            is not None
+        )
+
+    return term in value
+
+
 def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
-    return any(term in value for term in terms)
+    return any(
+        _contains_term(
+            value,
+            term,
+        )
+        for term in terms
+    )
 
 
 def has_china_signal(

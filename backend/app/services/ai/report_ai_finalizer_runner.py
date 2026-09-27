@@ -5,7 +5,9 @@ import logging
 from dataclasses import dataclass
 
 from app.core.llm import SiliconFlowClient
+from app.core.status import NotificationEventType, ReportAIStatus
 from app.db.session import AsyncSessionLocal
+from app.models.user import RoleEnum
 from app.services.ai.report_ai_finalizer import (
     claim_report_ai_finalization,
     complete_report_ai_finalization,
@@ -294,11 +296,12 @@ async def run_report_ai_finalization(
                     failed_report.ai_status
                 )
 
-                if final_status == "failed":
-                    await notification_service.create_for_all_active_users(
+                if final_status == ReportAIStatus.failed.value:
+                    await notification_service.create_for_roles(
                         db,
-                        event_type="report.ai_failed",
-                        title="报告 AI 处理失败",
+                        roles={RoleEnum.admin},
+                        event_type=NotificationEventType.report_ai_failed.value,
+                        title="报告 AI 处理失败，请处理",
                         message=f"{failed_report.title}: {str(exc)[:1000]}",
                         report_id=failed_report.id,
                     )
@@ -365,10 +368,11 @@ async def run_report_ai_finalization(
                 completed_report.ai_retry_count
             )
 
-            await notification_service.create_for_all_active_users(
+            await notification_service.create_for_roles(
                 db,
-                event_type="report.ai_completed",
-                title="报告翻译与评论已完成",
+                roles={RoleEnum.teacher},
+                event_type=NotificationEventType.report_ai_completed.value,
+                title="报告翻译与评论已完成，请复核",
                 message=f"{completed_report.title}",
                 report_id=completed_report.id,
             )

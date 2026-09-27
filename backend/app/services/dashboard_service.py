@@ -1,6 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.status import CrawlRunStatus, ReportAIStatus
 from app.models.crawl_candidate import CrawlCandidate
 from app.models.crawl_run import CrawlRun
 from app.models.notification import Notification
@@ -41,27 +42,35 @@ class DashboardService:
             pending_crawl_runs=await self._count_where(
                 db,
                 CrawlRun,
-                CrawlRun.status == "pending",
+                CrawlRun.status == CrawlRunStatus.pending.value,
             ),
             running_crawl_runs=await self._count_where(
                 db,
                 CrawlRun,
-                CrawlRun.status == "running",
+                CrawlRun.status == CrawlRunStatus.running.value,
             ),
             pending_ai_reports=await self._count_where(
                 db,
                 Report,
-                Report.ai_status.in_(("pending", "queued")),
+                Report.ai_status.in_(
+                    (ReportAIStatus.pending.value, ReportAIStatus.queued.value)
+                ),
             ),
             running_ai_reports=await self._count_where(
                 db,
                 Report,
-                Report.ai_status.in_(("processing", "finalize_queued", "finalizing")),
+                Report.ai_status.in_(
+                    (
+                        ReportAIStatus.processing.value,
+                        ReportAIStatus.finalize_queued.value,
+                        ReportAIStatus.finalizing.value,
+                    )
+                ),
             ),
             failed_ai_reports=await self._count_where(
                 db,
                 Report,
-                Report.ai_status == "failed",
+                Report.ai_status == ReportAIStatus.failed.value,
             ),
             unread_notifications=await self._count_where(
                 db,

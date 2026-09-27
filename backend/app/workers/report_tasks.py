@@ -5,6 +5,12 @@ from datetime import timedelta
 
 from sqlalchemy import and_, func, or_, select
 
+from app.core.status import (
+    AIChunkStatus,
+    NotificationEventType,
+    ReportAIStatus,
+    ReportCrawlStatus,
+)
 from app.db.session import AsyncSessionLocal
 from app.models.report import Report
 from app.models.report_ai_chunk import ReportAIChunk
@@ -121,19 +127,19 @@ async def _enqueue_ai_chunk_tasks(
     )
 
     conditions = [
-        Report.crawl_status == "success",
+        Report.crawl_status == ReportCrawlStatus.success.value,
         Report.content.is_not(None),
         or_(
             Report.ai_status.in_(
                 (
-                    "pending",
-                    "processing",
-                    "failed",
+                    ReportAIStatus.pending.value,
+                    ReportAIStatus.processing.value,
+                    ReportAIStatus.failed.value,
                 )
             ),
             and_(
                 Report.ai_status
-                == "finalize_queued",
+                == ReportAIStatus.finalize_queued.value,
                 or_(
                     Report.updated_at.is_(None),
                     Report.updated_at
@@ -142,7 +148,7 @@ async def _enqueue_ai_chunk_tasks(
             ),
             and_(
                 Report.ai_status
-                == "finalizing",
+                == ReportAIStatus.finalizing.value,
                 or_(
                     Report.updated_at.is_(None),
                     Report.updated_at
@@ -222,7 +228,7 @@ async def _enqueue_ai_chunk_tasks(
 
                 # stale finalizing 已累计到最大失败次数，
                 # 整篇报告到此终止，不再重新投递。
-                if report.ai_status == "failed":
+                if report.ai_status == ReportAIStatus.failed.value:
                     continue
 
             chunks = (
@@ -267,24 +273,24 @@ async def _enqueue_ai_chunk_tasks(
 
                     chunk = recovered
 
-                if chunk.status == "success":
+                if chunk.status == AIChunkStatus.success.value:
                     continue
 
                 if chunk.status in {
-                    "queued",
-                    "processing",
+                    AIChunkStatus.queued.value,
+                    AIChunkStatus.processing.value,
                 }:
                     continue
 
-                if chunk.status == "failed":
+                if chunk.status == AIChunkStatus.failed.value:
                     if (
                         chunk.retry_count
                         >= AI_CHUNK_MAX_RETRIES
                     ):
                         continue
 
-                if chunk.status != "pending":
-                    if chunk.status != "failed":
+                if chunk.status != AIChunkStatus.pending.value:
+                    if chunk.status != AIChunkStatus.failed.value:
                         continue
 
                 queued = (
@@ -304,7 +310,7 @@ async def _enqueue_ai_chunk_tasks(
                 report_has_queued_chunk = True
 
             if report_has_queued_chunk:
-                report.ai_status = "processing"
+                report.ai_status = ReportAIStatus.processing.value
                 report.updated_at = now
 
             finalization_queue_result = (
@@ -386,8 +392,8 @@ async def _enqueue_ai_chunk_tasks(
                                     == report_id,
                                     ReportAIChunk.status.in_(
                                         (
-                                            "queued",
-                                            "processing",
+                                            AIChunkStatus.queued.value,
+                                            AIChunkStatus.processing.value,
                                         )
                                     ),
                                 )
@@ -415,10 +421,10 @@ async def _enqueue_ai_chunk_tasks(
                             if (
                                 report is not None
                                 and report.ai_status
-                                == "processing"
+                                == ReportAIStatus.processing.value
                             ):
                                 report.ai_status = (
-                                    "pending"
+                                    ReportAIStatus.pending.value
                                 )
 
                                 report.updated_at = (
@@ -564,7 +570,7 @@ async def _fetch_report_content_async(
             }
 
         # 先将状态设置为运行中，同时也更新 updated_at
-        report.crawl_status = "running"
+        report.crawl_status = ReportCrawlStatus.running.value
         report.crawl_error = None
         report.updated_at = utc_now_naive()
         await db.commit()
@@ -603,14 +609,15 @@ async def _fetch_report_content_async(
             report.page_count = document.page_count
             report.non_empty_page_count = document.non_empty_page_count
             report.pdf_byte_length = document.pdf_byte_length
-            report.crawl_status = "success"
+            report.content_kind = document.content_kind
+            report.crawl_status = ReportCrawlStatus.success.value
             report.crawl_error = None
             report.content_fetched_at = now
             report.updated_at = now
             report.translation = None
             report.summary = None
             report.commentary = None
-            report.ai_status = "pending"
+            report.ai_status = ReportAIStatus.pending.value
             report.ai_retry_count = 0
             report.ai_generated_at = None
 
@@ -645,12 +652,12 @@ async def _fetch_report_content_async(
             )
             failed_report = result.scalar_one_or_none()
             if failed_report is not None:
-                failed_report.crawl_status = "failed"
+                failed_report.crawl_status = ReportCrawlStatus.failed.value
                 failed_report.crawl_error = str(exc)[:2000]
                 failed_report.updated_at = utc_now_naive()
                 await notification_service.create_for_all_active_users(
                     db,
-                    event_type="report.fetch_failed",
+                    event_type=NotificationEventType.report_fetch_failed.value,
                     title="报告正文抓取失败",
                     message=f"{failed_report.title}: {failed_report.crawl_error}",
                     report_id=failed_report.id,

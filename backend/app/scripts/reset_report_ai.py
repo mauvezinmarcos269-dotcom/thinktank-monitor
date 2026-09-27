@@ -5,6 +5,7 @@ import sys
 
 from sqlalchemy import delete, select
 
+from app.core.status import ReportAIStatus
 from app.db.session import AsyncSessionLocal
 from app.models.report import Report
 from app.models.report_ai_chunk import ReportAIChunk
@@ -46,7 +47,7 @@ async def reset_report_ai(
         report.summary = None
         report.commentary = None
         report.ai_generated_at = None
-        report.ai_status = "pending"
+        report.ai_status = ReportAIStatus.pending.value
         report.ai_retry_count = 0
 
         await db.commit()

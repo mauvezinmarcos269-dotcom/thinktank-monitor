@@ -2,9 +2,17 @@ import json
 
 import pytest
 
+from app.services.ai.report_ai_prompts import (
+    build_commentary_from_notes_prompt,
+    build_summary_from_notes_prompt,
+)
 from app.services.ai.report_ai_service import (
     generate_commentary_from_notes,
     generate_summary_from_notes,
+    generate_translation,
+    maximum_translation_length,
+    minimum_translation_length,
+    validate_translation_completeness,
 )
 
 
@@ -23,6 +31,28 @@ class FakeClient:
     ) -> str:
         self.prompts.append(prompt)
         return self.responses.pop(0)
+
+
+def test_summary_prompt_requires_numbered_points() -> None:
+    prompt = build_summary_from_notes_prompt(
+        "Sample title",
+        "分析笔记。",
+    )
+
+    assert "必须包含4个以上主要观点" in prompt
+    assert "必须依次使用“一、”“二、”“三、”“四、”" in prompt
+    assert "不要使用无编号的连续段落" in prompt
+
+
+def test_commentary_prompt_requires_numbered_points() -> None:
+    prompt = build_commentary_from_notes_prompt(
+        "Sample title",
+        "分析笔记。",
+    )
+
+    assert "必须包含5个以上分论点" in prompt
+    assert "必须依次使用“一、”“二、”“三、”“四、”“五、”" in prompt
+    assert "不要使用无编号的连续段落" in prompt
 
 
 @pytest.mark.asyncio
@@ -46,9 +76,63 @@ async def test_summary_retry_prompt_includes_length_feedback() -> None:
     assert len(client.prompts) == 2
     assert "上一次生成未通过长度校验" in client.prompts[1]
     assert "summary 长度不足" in client.prompts[1]
-    assert "必须达到 1500-2000 个中文字符" in client.prompts[1]
+    assert "必须达到 1500-2200 个中文字符" in client.prompts[1]
     assert "上一版 summary 草稿如下" in client.prompts[1]
     assert short_summary in client.prompts[1]
+
+
+@pytest.mark.asyncio
+async def test_summary_accepts_slightly_over_legacy_upper_bound() -> None:
+    legacy_over_limit_summary = "较长主要观点。" * 300
+    client = FakeClient(
+        [
+            json.dumps(
+                {"summary": legacy_over_limit_summary},
+                ensure_ascii=False,
+            ),
+        ]
+    )
+
+    summary = await generate_summary_from_notes(
+        client,
+        "Sample title",
+        "分析笔记。" * 200,
+    )
+
+    assert summary == legacy_over_limit_summary
+    assert 2000 < len(summary) <= 2200
+
+
+@pytest.mark.asyncio
+async def test_summary_still_rejects_clearly_over_new_upper_bound() -> None:
+    too_long_summary = "过长主要观点。" * 400
+    client = FakeClient(
+        [
+            json.dumps(
+                {"summary": too_long_summary},
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {"summary": too_long_summary},
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {"summary": too_long_summary},
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {"summary": too_long_summary},
+                ensure_ascii=False,
+            ),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="全文摘要生成失败"):
+        await generate_summary_from_notes(
+            client,
+            "Sample title",
+            "分析笔记。" * 200,
+        )
 
 
 @pytest.mark.asyncio
@@ -73,7 +157,7 @@ async def test_commentary_retry_prompt_includes_length_feedback() -> None:
     assert "上一次生成未通过长度校验" in client.prompts[1]
     assert "commentary 长度不足" in client.prompts[1]
     assert "必须达到 2000-2500 个中文字符" in client.prompts[1]
-    assert "建议控制在 2200-2350 个中文字符" in client.prompts[1]
+    assert "建议控制在 2300-2400 个中文字符" in client.prompts[1]
     assert "上一版 commentary 草稿如下" in client.prompts[1]
     assert short_commentary in client.prompts[1]
 
@@ -131,5 +215,163 @@ async def test_commentary_allows_four_final_output_attempts() -> None:
     assert commentary == valid_commentary
     assert len(client.prompts) == 4
     assert "commentary 长度超出" in client.prompts[3]
-    assert "建议控制在 2200-2350 个中文字符" in client.prompts[3]
+    assert "建议控制在 2200-2300 个中文字符" in client.prompts[3]
     assert still_long_commentary in client.prompts[3]
+
+
+def test_minimum_translation_length_uses_effective_source_length() -> None:
+    source_content = "word " * 1000
+
+    assert minimum_translation_length(source_content) == 1400
+
+
+def test_minimum_translation_length_ignores_toc_dot_leaders() -> None:
+    source_content = (
+        "Contents\n"
+        "Foreword. . . . . . . . . . . . . . . . . . . . . . . . . . 1\n"
+        "Executive Summary. . . . . . . . . . . . . . . . . . . . . 5\n"
+        "Introduction: The New Cold War.. . . . . . . . . . . . . 16\n"
+    )
+
+    assert minimum_translation_length(source_content) < 80
+
+
+def test_validate_translation_completeness_rejects_summary_like_output() -> None:
+    source_content = "word " * 200
+    translation = "以下是摘要：" + ("这是简短说明。" * 60)
+
+    with pytest.raises(ValueError, match="疑似摘要式输出"):
+        validate_translation_completeness(
+            translation,
+            source_content,
+        )
+
+
+def test_validate_translation_completeness_accepts_slightly_short_output() -> None:
+    source_content = "word " * 1000
+    min_length = minimum_translation_length(source_content)
+    translation = "译" * (min_length - 20)
+
+    validate_translation_completeness(
+        translation,
+        source_content,
+    )
+
+
+def test_validate_translation_completeness_accepts_short_tail_chunk() -> None:
+    source_content = (
+        "necessarily represent the views of members of the advisory committee, "
+        "whose involvement should in no way be interpreted as an endorsement "
+        "of the report by either themselves or the organizations with which "
+        "they are affiliated."
+    )
+    translation = (
+        "并不必然代表顾问委员会成员的观点，其参与不应被解释为他们本人或其所属组织"
+        "对本报告的正式认可或背书。"
+    )
+
+    assert minimum_translation_length(source_content) < 120
+
+    validate_translation_completeness(
+        translation,
+        source_content,
+    )
+
+
+def test_validate_translation_completeness_rejects_tiny_short_tail_output() -> None:
+    source_content = (
+        "necessarily represent the views of members of the advisory committee, "
+        "whose involvement should in no way be interpreted as an endorsement "
+        "of the report by either themselves or the organizations with which "
+        "they are affiliated."
+    )
+
+    with pytest.raises(ValueError, match="translation 长度不足"):
+        validate_translation_completeness(
+            "略。",
+            source_content,
+        )
+
+
+def test_validate_translation_completeness_accepts_moderately_short_output() -> None:
+    source_content = "word " * 1000
+    min_length = minimum_translation_length(source_content)
+    translation = "译" * int(min_length * 0.65)
+
+    validate_translation_completeness(
+        translation,
+        source_content,
+    )
+
+
+def test_validate_translation_completeness_rejects_clearly_short_output() -> None:
+    source_content = "word " * 1000
+    min_length = minimum_translation_length(source_content)
+    translation = "译" * int(min_length * 0.55)
+
+    with pytest.raises(ValueError, match="translation 长度不足"):
+        validate_translation_completeness(
+            translation,
+            source_content,
+        )
+
+
+def test_validate_translation_completeness_rejects_expanded_output() -> None:
+    source_content = "word " * 1000
+    max_length = maximum_translation_length(source_content)
+    translation = "译" * (max_length + 1)
+
+    with pytest.raises(ValueError, match="translation 长度超出"):
+        validate_translation_completeness(
+            translation,
+            source_content,
+        )
+
+
+@pytest.mark.asyncio
+async def test_translation_retry_prompt_includes_completeness_feedback() -> None:
+    source_content = "word " * 200
+    short_translation = "短译文。" * 10
+    valid_translation = "完整译文。" * 80
+    client = FakeClient(
+        [
+            short_translation,
+            valid_translation,
+        ]
+    )
+
+    translation = await generate_translation(
+        client,
+        "Sample title",
+        source_content,
+    )
+
+    assert translation == valid_translation
+    assert len(client.prompts) == 2
+    assert "上一次翻译未通过完整性验收" in client.prompts[1]
+    assert "不得改写为摘要、要点、提纲或评论" in client.prompts[1]
+    assert "本次译文应控制在" in client.prompts[1]
+
+
+@pytest.mark.asyncio
+async def test_translation_retry_prompt_handles_expanded_output() -> None:
+    source_content = "word " * 1000
+    expanded_translation = "扩写译文。" * 2000
+    valid_translation = "完整译文。" * 300
+    client = FakeClient(
+        [
+            expanded_translation,
+            valid_translation,
+        ]
+    )
+
+    translation = await generate_translation(
+        client,
+        "Sample title",
+        source_content,
+    )
+
+    assert translation == valid_translation
+    assert len(client.prompts) == 2
+    assert "translation 长度超出" in client.prompts[1]
+    assert "请只翻译当前输入中实际存在的文字" in client.prompts[1]

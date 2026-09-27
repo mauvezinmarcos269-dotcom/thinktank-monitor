@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from app.core.config import settings
+from app.core.content_kind import ReportContentKind
 from app.services.crawler.content_extractor import (
     extract_article_content,
     extract_report_pdf_url,
@@ -13,8 +15,8 @@ from app.services.crawler.http_client import (
 )
 from app.services.crawler.pdf_extractor import extract_pdf_text
 
-MIN_REPORT_PAGE_COUNT = 20
-MIN_WEB_ARTICLE_CONTENT_LENGTH = 3000
+MIN_REPORT_PAGE_COUNT = settings.CRAWLER_MIN_REPORT_PAGE_COUNT
+MIN_WEB_ARTICLE_CONTENT_LENGTH = settings.CRAWLER_MIN_WEB_ARTICLE_CONTENT_LENGTH
 
 
 @dataclass(frozen=True)
@@ -27,7 +29,7 @@ class ReportDocumentResult:
     page_count: int | None
     non_empty_page_count: int | None
     pdf_byte_length: int | None
-    content_kind: str = "pdf"
+    content_kind: str = ReportContentKind.pdf.value
 
 
 def _looks_like_pdf(resource: FetchResult) -> bool:
@@ -47,6 +49,34 @@ def _looks_like_pdf(resource: FetchResult) -> bool:
     return path.endswith(".pdf")
 
 
+def _build_web_article_result_if_allowed(
+    *,
+    page_url: str,
+    page_content: str | bytes,
+    minimum_web_content_length: int,
+) -> ReportDocumentResult | None:
+    content = extract_article_content(
+        page_content
+    )
+
+    if (
+        content
+        and len(content)
+        >= minimum_web_content_length
+    ):
+        return ReportDocumentResult(
+            page_url=page_url,
+            pdf_url=None,
+            text=content,
+            page_count=None,
+            non_empty_page_count=None,
+            pdf_byte_length=None,
+            content_kind=ReportContentKind.web_article.value,
+        )
+
+    return None
+
+
 async def fetch_report_document(
     url: str,
     minimum_page_count: int = MIN_REPORT_PAGE_COUNT,
@@ -54,7 +84,7 @@ async def fetch_report_document(
     minimum_web_content_length: int = MIN_WEB_ARTICLE_CONTENT_LENGTH,
 ) -> ReportDocumentResult:
     """
-    获取研究报告 PDF 并提取全文。
+    获取正式研究报告正文并提取全文。
 
     支持两种入口：
     1. 报告详情页 URL；
@@ -62,6 +92,8 @@ async def fetch_report_document(
 
     报告页会先寻找 PDF 地址，再下载 PDF。
     PDF 页数低于 minimum_page_count 时拒绝继续处理。
+    对已允许网页长文 fallback 的来源，如果未发现 PDF，
+    但网页正文达到 minimum_web_content_length，也可作为正式报告入库。
     """
     if minimum_page_count <= 0:
         raise ValueError(
@@ -95,24 +127,14 @@ async def fetch_report_document(
 
         if pdf_url is None:
             if allow_web_article_fallback:
-                content = extract_article_content(
-                    resource.content
+                web_article_result = _build_web_article_result_if_allowed(
+                    page_url=page_url,
+                    page_content=resource.content,
+                    minimum_web_content_length=minimum_web_content_length,
                 )
 
-                if (
-                    content
-                    and len(content)
-                    >= minimum_web_content_length
-                ):
-                    return ReportDocumentResult(
-                        page_url=page_url,
-                        pdf_url=None,
-                        text=content,
-                        page_count=None,
-                        non_empty_page_count=None,
-                        pdf_byte_length=None,
-                        content_kind="web_article",
-                    )
+                if web_article_result is not None:
+                    return web_article_result
 
             raise ValueError(
                 "报告详情页中未发现 PDF 链接。"
@@ -134,21 +156,39 @@ async def fetch_report_document(
             "下载内容不是有效的 PDF 文件。"
         )
 
-    extraction = extract_pdf_text(
-        pdf_resource.content
-    )
+    extraction_error: ValueError | None = None
 
-    if extraction.page_count < minimum_page_count:
-        raise ValueError(
-            "报告页数不足："
-            f"{extraction.page_count} 页，"
-            f"要求至少 {minimum_page_count} 页。"
+    try:
+        extraction = extract_pdf_text(
+            pdf_resource.content
         )
 
-    if not extraction.text:
-        raise ValueError(
-            "PDF 未提取出有效文本。"
-        )
+        if extraction.page_count < minimum_page_count:
+            raise ValueError(
+                "报告页数不足："
+                f"{extraction.page_count} 页，"
+                f"要求至少 {minimum_page_count} 页。"
+            )
+
+        if not extraction.text:
+            raise ValueError(
+                "PDF 未提取出有效文本。"
+            )
+    except ValueError as exc:
+        extraction_error = exc
+
+        if allow_web_article_fallback and not _looks_like_pdf(resource):
+            web_article_result = _build_web_article_result_if_allowed(
+                page_url=page_url,
+                page_content=resource.content,
+                minimum_web_content_length=minimum_web_content_length,
+            )
+
+            if web_article_result is not None:
+                return web_article_result
+
+    if extraction_error is not None:
+        raise extraction_error
 
     return ReportDocumentResult(
         page_url=page_url,

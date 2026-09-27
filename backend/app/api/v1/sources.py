@@ -185,7 +185,13 @@ async def trigger_source_crawl(
             detail="当前手动抓取仅支持 RSS 和 website 类型来源。",
         )
 
-    task = crawl_source_task.delay(source_id)
+    try:
+        task = crawl_source_task.delay(source_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="任务队列不可用，请检查 Celery 和 Redis 服务。",
+        ) from exc
 
     return {
         "message": "抓取任务已提交。",

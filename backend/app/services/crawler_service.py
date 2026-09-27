@@ -1,212 +1,87 @@
 import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.core.status import (
+    CrawlCandidateSkipReason,
+    CrawlRunStatus,
+    NotificationEventType,
+    ReportAIStatus,
+    ReportCrawlStatus,
+)
 from app.db.session import AsyncSessionLocal
-from app.models import CrawlCandidate, CrawlRun, Report, Source
+from app.models import CrawlRun, Report, Source, ThinkTank
 from app.models.source import CrawlStatusEnum, SourceTypeEnum
 from app.services.ai.report_relevance_service import (
     evaluate_china_relevance,
 )
 from app.services.crawl_candidate_service import (
-    CANDIDATE_STATUS_DISCOVERED,
     mark_candidate_saved,
     mark_candidate_skipped,
 )
 from app.services.crawl_quality_service import CrawlQualityStats
-from app.services.crawler.brookings_parser import (
-    parse_brookings_reports,
+from app.services.crawler import source_article_discovery
+from app.services.crawler.candidate_intake import (
+    intake_crawl_candidates,
 )
-from app.services.crawler.csis_analysis_parser import (
-    parse_csis_reports,
+from app.services.crawler.candidate_intake import (
+    normalize_url as _normalize_url,
 )
-from app.services.crawler.http_client import (
-    fetch_html,
-    fetch_resource,
-)
+from app.services.crawler.http_client import fetch_html, fetch_resource
 from app.services.crawler.report_document_service import (
     fetch_report_document,
 )
-from app.services.crawler.rss_parser import parse_rss_articles
-from app.services.crawler.us_core_parser import (
-    CORE_SITE_CONFIGS,
-    CoreSiteConfig,
-    parse_core_site_reports,
-)
 from app.services.notification_service import notification_service
+from app.services.source_rollout_policy import get_source_rollout_policy
 
-BROOKINGS_DISCOVERY_URLS = (
-    "https://www.brookings.edu/",
-    "https://www.brookings.edu/regions/asia-the-pacific/china/",
-)
-
-CORE_US_SITE_CONFIG_BY_HOST: dict[str, CoreSiteConfig] = {
-    host: config
-    for config in CORE_SITE_CONFIGS.values()
-    for host in config.hosts
-}
-
-
-def normalize_url(url: str) -> str | None:
-    """
-    将文章 URL 规范化，用于同一来源内的去重。
-
-    当前规则：
-    - 仅接受 http / https；
-    - 协议、域名转小写；
-    - 去除 fragment，例如 #section；
-    - 保留 query 参数，避免误删有实际含义的 URL 参数；
-    - 非根路径移除末尾 /。
-    """
-    value = url.strip()
-
-    if not value:
-        return None
-
-    parsed = urlsplit(value)
-
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        return None
-
-    scheme = parsed.scheme.lower()
-    netloc = parsed.netloc.lower()
-    path = parsed.path or "/"
-
-    if path != "/" and path.endswith("/"):
-        path = path.rstrip("/")
-
-    return urlunsplit(
-        (
-            scheme,
-            netloc,
-            path,
-            parsed.query,
-            "",
-        )
-    )
+SOURCE_DISCOVERY_TIMEOUT_SECONDS = 90.0
+REPORT_DOCUMENT_FETCH_TIMEOUT_SECONDS = 90.0
+REPORT_RELEVANCE_TIMEOUT_SECONDS = 60.0
 
 
 async def _fetch_source_articles(
     source: Source,
 ) -> list[dict[str, object]]:
-    """
-    根据 Source 类型读取候选报告条目。
+    # Keep the old crawler_service monkeypatch seam while the implementation
+    # lives in the dedicated discovery module.
+    source_article_discovery.fetch_html = fetch_html
+    source_article_discovery.fetch_resource = fetch_resource
+    return await source_article_discovery.fetch_source_articles(source)
 
-    RSS 来源继续使用现有 RSS parser；
-    website 来源目前仅支持 CSIS /analysis。
-    """
-    if source.source_type == SourceTypeEnum.rss:
-        feed_content = await fetch_html(
-            source.url
-        )
 
-        return parse_rss_articles(
-            feed_content,
-            source.url,
-        )
-
-    if source.source_type == SourceTypeEnum.website:
-        hostname = urlsplit(
-            source.url
-        ).netloc.lower()
-
-        if hostname in {
-            "www.csis.org",
-            "csis.org",
-        }:
-            resource = await fetch_resource(
-                source.url
-            )
-
-            return parse_csis_reports(
-                resource.content,
-                resource.final_url,
-            )
-
-        if hostname in {
-            "www.brookings.edu",
-            "brookings.edu",
-        }:
-            articles_by_url: dict[str, dict[str, object]] = {}
-
-            discovery_urls = (
-                source.url,
-                *(
-                    url
-                    for url in BROOKINGS_DISCOVERY_URLS
-                    if url != source.url
-                ),
-            )
-
-            for discovery_url in discovery_urls:
-                resource = await fetch_resource(
-                    discovery_url
-                )
-
-                for article in parse_brookings_reports(
-                    resource.content,
-                    resource.final_url,
-                ):
-                    url = str(article["url"])
-                    articles_by_url.setdefault(
-                        url,
-                        article,
-                    )
-
-            return list(articles_by_url.values())
-
-        core_site_config = CORE_US_SITE_CONFIG_BY_HOST.get(
-            hostname
-        )
-
-        if core_site_config is not None:
-            articles_by_url: dict[str, dict[str, object]] = {}
-
-            discovery_urls = (
-                source.url,
-                *(
-                    url
-                    for url in core_site_config.discovery_urls
-                    if url != source.url
-                ),
-            )
-
-            for discovery_url in discovery_urls:
-                resource = await fetch_resource(
-                    discovery_url
-                )
-
-                for article in parse_core_site_reports(
-                    resource.content,
-                    resource.final_url,
-                    core_site_config,
-                ):
-                    url = str(article["url"])
-                    articles_by_url.setdefault(
-                        url,
-                        article,
-                    )
-
-            return list(articles_by_url.values())
-
-        raise ValueError(
-            "当前尚未配置该 website 来源的专用解析器："
-            f"{source.url}"
-        )
-
-    raise ValueError(
-        "当前不支持此来源类型抓取："
-        f"{source.source_type.value}"
-    )
+def normalize_url(url: str) -> str | None:
+    return _normalize_url(url)
 
 
 def crawl_source(source_id: int) -> dict[str, int | str]:
     """Celery 同步任务入口：抓取一个 RSS 来源。"""
     return asyncio.run(_crawl_source_async(source_id))
+
+
+def _ensure_source_rollout_allowed(
+    *,
+    source: Source,
+    think_tank: ThinkTank | None,
+) -> None:
+    if think_tank is None:
+        raise ValueError(
+            "来源未关联智库，不能执行自动入库抓取: "
+            f"source_id={source.id}"
+        )
+
+    rollout_policy = get_source_rollout_policy(
+        think_tank.key
+    )
+
+    if not rollout_policy.can_run_pilot_crawl:
+        raise ValueError(
+            "来源尚未允许进入自动入库抓取: "
+            f"key={think_tank.key}, "
+            f"stage={rollout_policy.rollout_stage}"
+        )
 
 
 async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
@@ -231,11 +106,21 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                     f"实际类型为: {source.source_type.value}"
                 )
 
+            think_tank = await db.get(
+                ThinkTank,
+                source.think_tank_id,
+            )
+
+            _ensure_source_rollout_allowed(
+                source=source,
+                think_tank=think_tank,
+            )
+
             now = datetime.now(UTC)
 
             crawl_run = CrawlRun(
                 source_id=source.id,
-                status="running",
+                status=CrawlRunStatus.running.value,
                 found_count=0,
                 saved_count=0,
                 started_at=now.replace(tzinfo=None),
@@ -251,59 +136,27 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
 
             run_id = crawl_run.id
 
-            parsed_articles = await _fetch_source_articles(
-                source
+            parsed_articles = await asyncio.wait_for(
+                _fetch_source_articles(
+                    source
+                ),
+                timeout=SOURCE_DISCOVERY_TIMEOUT_SECONDS,
             )
 
             quality_stats = CrawlQualityStats(
                 raw_candidates=len(parsed_articles)
             )
-            articles_by_url: dict[str, dict[str, object]] = {}
-            candidates_by_url: dict[str, CrawlCandidate] = {}
+            candidate_intake = intake_crawl_candidates(
+                db,
+                parsed_articles=parsed_articles,
+                crawl_run_id=run_id,
+                source_id=source.id,
+                quality_stats=quality_stats,
+            )
 
-            for article in parsed_articles:
-                candidate = CrawlCandidate(
-                    crawl_run_id=run_id,
-                    source_id=source.id,
-                    title=str(article.get("title", ""))[:500],
-                    url=str(article["url"]),
-                    status=CANDIDATE_STATUS_DISCOVERED,
-                )
-                db.add(candidate)
-
-                normalized_url = normalize_url(str(article["url"]))
-
-                if normalized_url is None:
-                    mark_candidate_skipped(
-                        candidate,
-                        reason_code="invalid_url",
-                    )
-                    quality_stats.invalid_url += 1
-                    quality_stats.add_sample(
-                        "无效 URL",
-                        article.get("url"),
-                    )
-                    continue
-
-                candidate.normalized_url = normalized_url
-
-                # 同一份 RSS 内，URL 重复时保留第一条。
-                if normalized_url not in articles_by_url:
-                    articles_by_url[normalized_url] = article
-                    candidates_by_url[normalized_url] = candidate
-                else:
-                    mark_candidate_skipped(
-                        candidate,
-                        reason_code="duplicate_in_feed",
-                    )
-                    quality_stats.duplicate_in_feed += 1
-                    quality_stats.add_sample(
-                        "同源重复",
-                        article.get("url"),
-                    )
-
+            articles_by_url = candidate_intake.articles_by_url
+            candidates_by_url = candidate_intake.candidates_by_url
             normalized_urls = list(articles_by_url)
-            quality_stats.unique_candidates = len(articles_by_url)
 
             existing_urls: set[str] = set()
 
@@ -328,7 +181,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                 if normalized_url in existing_urls:
                     mark_candidate_skipped(
                         candidate,
-                        reason_code="duplicate_existing",
+                        reason_code=CrawlCandidateSkipReason.duplicate_existing.value,
                     )
                     quality_stats.duplicate_existing += 1
                     quality_stats.add_sample(
@@ -338,19 +191,22 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                     continue
 
                 try:
-                    document = await fetch_report_document(
-                        str(article["url"]),
-                        allow_web_article_fallback=bool(
-                            article.get(
-                                "allow_web_article_fallback",
-                                False,
-                            )
+                    document = await asyncio.wait_for(
+                        fetch_report_document(
+                            str(article["url"]),
+                            allow_web_article_fallback=bool(
+                                article.get(
+                                    "allow_web_article_fallback",
+                                    False,
+                                )
+                            ),
                         ),
+                        timeout=REPORT_DOCUMENT_FETCH_TIMEOUT_SECONDS,
                     )
                 except Exception as exc:
                     mark_candidate_skipped(
                         candidate,
-                        reason_code="document_failed",
+                        reason_code=CrawlCandidateSkipReason.document_failed.value,
                         error=exc,
                     )
                     quality_stats.document_failed += 1
@@ -369,16 +225,20 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                 candidate.page_count = document.page_count
                 candidate.non_empty_page_count = document.non_empty_page_count
                 candidate.pdf_byte_length = document.pdf_byte_length
+                candidate.content_kind = document.content_kind
 
                 try:
-                    relevance = await evaluate_china_relevance(
-                        str(article["title"]),
-                        content,
+                    relevance = await asyncio.wait_for(
+                        evaluate_china_relevance(
+                            str(article["title"]),
+                            content,
+                        ),
+                        timeout=REPORT_RELEVANCE_TIMEOUT_SECONDS,
                     )
                 except Exception as exc:
                     mark_candidate_skipped(
                         candidate,
-                        reason_code="relevance_failed",
+                        reason_code=CrawlCandidateSkipReason.relevance_failed.value,
                         error=exc,
                     )
                     quality_stats.relevance_failed += 1
@@ -400,7 +260,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                 if not relevance["is_china_related"]:
                     mark_candidate_skipped(
                         candidate,
-                        reason_code="non_china_related",
+                        reason_code=CrawlCandidateSkipReason.non_china_related.value,
                         error=relevance.get("reason"),
                     )
                     quality_stats.non_china_related += 1
@@ -436,11 +296,12 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                     page_count=document.page_count,
                     non_empty_page_count=document.non_empty_page_count,
                     pdf_byte_length=document.pdf_byte_length,
-                    crawl_status="success",
+                    content_kind=document.content_kind,
+                    crawl_status=ReportCrawlStatus.success.value,
                     content_fetched_at=content_fetched_at,
                     crawl_error=None,
                     published_at=article["published_at"],
-                    ai_status="pending",
+                    ai_status=ReportAIStatus.pending.value,
                     ai_retry_count=0,
                 )
 
@@ -451,7 +312,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                         await db.flush()
                         await notification_service.create_for_all_active_users(
                             db,
-                            event_type="report.created",
+                            event_type=NotificationEventType.report_created.value,
                             title="发现新的涉华智库报告",
                             message=f"{report.title}",
                             report_id=report.id,
@@ -466,7 +327,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                     # 另一任务已写入同 URL 时，视为正常去重。
                     mark_candidate_skipped(
                         candidate,
-                        reason_code="concurrent_duplicate",
+                        reason_code=CrawlCandidateSkipReason.concurrent_duplicate.value,
                     )
                     quality_stats.concurrent_duplicate += 1
                     quality_stats.add_sample(
@@ -478,7 +339,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
             finished_at = datetime.now(UTC)
             quality_stats.saved_reports = saved_count
 
-            crawl_run.status = "success"
+            crawl_run.status = CrawlRunStatus.success.value
             crawl_run.found_count = len(articles_by_url)
             crawl_run.saved_count = saved_count
             crawl_run.error = quality_stats.to_summary()
@@ -506,7 +367,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                 crawl_run = await db.get(CrawlRun, run_id)
 
                 if crawl_run is not None:
-                    crawl_run.status = "failed"
+                    crawl_run.status = CrawlRunStatus.failed.value
                     crawl_run.error = error_message
                     crawl_run.finished_at = datetime.now(UTC).replace(
                         tzinfo=None

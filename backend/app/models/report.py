@@ -4,9 +4,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.status import ReportAIStatus, ReportCrawlStatus, ReportReviewStatus
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.report_review_event import ReportReviewEvent
     from app.models.source import Source
 
 
@@ -82,10 +84,18 @@ class Report(Base):
         nullable=True,
     )
 
+    content_kind: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="pdf",
+        server_default="pdf",
+        index=True,
+    )
+
     crawl_status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="pending",
+        default=ReportCrawlStatus.pending.value,
         index=True,
     )
 
@@ -109,11 +119,14 @@ class Report(Base):
         nullable=True,
     )
 
+    # 业务含义：分析评论稿第一部分“主要观点”。
+    # 字段名保留为 summary，避免引入数据库迁移和历史数据兼容成本。
     summary: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
+    # 业务含义：分析评论稿第二部分“深层研判”。
     commentary: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
@@ -122,8 +135,8 @@ class Report(Base):
     ai_status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="pending",
-        server_default="pending",
+        default=ReportAIStatus.pending.value,
+        server_default=ReportAIStatus.pending.value,
     )
 
     ai_retry_count: Mapped[int] = mapped_column(
@@ -134,6 +147,24 @@ class Report(Base):
     )
 
     ai_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    review_status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default=ReportReviewStatus.pending_review.value,
+        server_default=ReportReviewStatus.pending_review.value,
+        index=True,
+    )
+
+    review_note: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime,
         nullable=True,
     )
@@ -152,4 +183,10 @@ class Report(Base):
     source: Mapped["Source"] = relationship(
         "Source",
         back_populates="reports",
+    )
+
+    review_events: Mapped[list["ReportReviewEvent"]] = relationship(
+        "ReportReviewEvent",
+        back_populates="report",
+        cascade="all, delete-orphan",
     )
