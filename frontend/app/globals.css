@@ -699,6 +699,59 @@ th {
   padding: 0.75rem 0;
 }
 
+/* Report Reading Brief */
+
+.reading-brief {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.2fr) auto;
+  gap: 0.85rem;
+  align-items: center;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 0.85rem;
+}
+
+.reading-brief > div:first-child {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.reading-brief strong {
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.reading-brief p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.reading-brief dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.reading-brief dt {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.reading-brief dd {
+  margin: 0.2rem 0 0;
+  color: #0f172a;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.reading-brief button {
+  min-width: 5rem;
+}
+
 /* Report Outcome */
 
 .outcome-summary {
@@ -1620,6 +1673,8 @@ th {
   .section-heading,
   .detail-heading,
   .content-heading,
+  .reading-brief,
+  .reading-brief dl,
   .report-workbench-intro,
   .settings-workbench-intro,
   .outcome-summary,

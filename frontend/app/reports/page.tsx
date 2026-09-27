@@ -42,6 +42,7 @@ import {
   getDocumentType,
   PAGE_SIZE,
 } from './report-page-utils';
+import { ReportReadingBrief } from './report-reading-brief';
 import { ReviewHistoryPanel } from './review-history-panel';
 import { useReportActions } from './use-report-actions';
 import { useReportDetail } from './use-report-detail';
@@ -486,6 +487,11 @@ function ReportsPageContent() {
                 documentType={selectedDocumentType}
                 source={selectedSource ?? null}
                 thinkTank={selectedThinkTank ?? null}
+              />
+
+              <ReportReadingBrief
+                report={selected}
+                onViewSelect={setActiveView}
               />
 
               <ReportOutcomeSummary
