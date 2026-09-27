@@ -2,6 +2,8 @@
   box-sizing: border-box;
 }
 
+/* Base */
+
 :root {
   color: #17202a;
   background: #f6f7f9;
@@ -95,6 +97,8 @@ th {
   font-weight: 700;
 }
 
+/* App Shell */
+
 .app-shell {
   min-height: 100vh;
 }
@@ -187,6 +191,8 @@ th {
   margin: 0.35rem 0 0;
   color: #64748b;
 }
+
+/* Shared Layout */
 
 .report-workbench-intro,
 .settings-workbench-intro {
@@ -284,6 +290,8 @@ th {
   justify-items: center;
   text-align: center;
 }
+
+/* Report Filters */
 
 .toolbar {
   display: flex;
@@ -407,6 +415,8 @@ th {
 .active-filter-summary > button {
   white-space: nowrap;
 }
+
+/* Report Workspace */
 
 .split-layout {
   display: grid;
@@ -646,6 +656,8 @@ th {
   color: #075985;
 }
 
+/* Shared Utilities */
+
 .muted {
   color: #64748b;
 }
@@ -686,6 +698,8 @@ th {
   margin: 0.25rem 0;
   padding: 0.75rem 0;
 }
+
+/* Report Outcome */
 
 .outcome-summary {
   display: grid;
@@ -893,40 +907,28 @@ th {
   min-width: 9rem;
 }
 
-.batch-busy-note {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #fde68a;
-  border-radius: 999px;
-  background: #fffbeb;
-  color: #92400e;
-  padding: 0.18rem 0.52rem;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.batch-cross-page-note {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #bae6fd;
-  border-radius: 999px;
-  background: #f0f9ff;
-  color: #075985;
-  padding: 0.18rem 0.52rem;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
+.batch-busy-note,
+.batch-cross-page-note,
 .batch-review-target {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #bae6fd;
   border-radius: 999px;
-  background: #f0f9ff;
-  color: #075985;
   padding: 0.18rem 0.52rem;
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.batch-busy-note {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.batch-cross-page-note,
+.batch-review-target {
+  border: 1px solid #bae6fd;
+  background: #f0f9ff;
+  color: #075985;
 }
 
 .batch-review-target-success {
@@ -993,6 +995,8 @@ th {
   flex: 0 0 auto;
 }
 
+/* Badges And Messages */
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -1036,6 +1040,8 @@ th {
 .message-success {
   color: #15803d;
 }
+
+/* Report Detail Admin */
 
 .metadata-grid {
   display: grid;
@@ -1250,6 +1256,8 @@ th {
   white-space: pre-wrap;
 }
 
+/* Settings */
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1358,6 +1366,8 @@ th {
   margin-top: 1rem;
 }
 
+/* Tables And Notifications */
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -1381,6 +1391,8 @@ th {
   margin: 0 0 0.35rem;
   font-size: 1rem;
 }
+
+/* Source Health */
 
 .source-health-list {
   display: grid;
@@ -1559,6 +1571,8 @@ th {
   color: #64748b;
   overflow-wrap: anywhere;
 }
+
+/* Responsive */
 
 @media (max-width: 820px) {
   .topbar,
