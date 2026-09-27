@@ -182,6 +182,77 @@ export function formatSourceUrl(value: string): string {
   }
 }
 
+export function getReviewHistorySummary(
+  reviewEvents: Array<{
+    review_status: ReportReviewStatus;
+    created_at: string;
+  }>,
+  loading: boolean,
+  errorMessage: string | null
+): string {
+  if (loading) {
+    return '加载中';
+  }
+
+  if (errorMessage) {
+    return '读取失败';
+  }
+
+  if (reviewEvents.length === 0) {
+    return '暂无记录';
+  }
+
+  const latestEvent = reviewEvents.reduce((latest, event) =>
+    new Date(event.created_at).getTime() > new Date(latest.created_at).getTime()
+      ? event
+      : latest
+  );
+  const latestStatus =
+    reportReviewStatusLabels[latestEvent.review_status] ??
+    latestEvent.review_status;
+
+  return `最近：${latestStatus} · ${formatDateTime(latestEvent.created_at)}`;
+}
+
+export function getAIProgressSummary(
+  progress: {
+    total_chunks: number;
+    completed_chunks: number;
+    failed_chunks: number;
+    running_chunks: number;
+  } | null,
+  loading: boolean,
+  errorMessage: string | null
+): string {
+  if (loading) {
+    return '加载中';
+  }
+
+  if (errorMessage) {
+    return '读取失败';
+  }
+
+  if (!progress) {
+    return '暂无记录';
+  }
+
+  if (progress.total_chunks === 0) {
+    return '暂无分块';
+  }
+
+  const base = `${progress.completed_chunks}/${progress.total_chunks} 完成`;
+
+  if (progress.failed_chunks > 0) {
+    return `${base} · ${progress.failed_chunks} 失败`;
+  }
+
+  if (progress.running_chunks > 0) {
+    return `${base} · ${progress.running_chunks} 运行中`;
+  }
+
+  return `${base} · 无失败`;
+}
+
 export function getReportWorkflowState(report: Report): ReportWorkflowState {
   if (report.review_status === 'approved') {
     return {

@@ -34,7 +34,9 @@ import { ReportFilterBar } from './report-filter-bar';
 import { ReportList } from './report-list';
 import {
   formatDateTime,
+  getAIProgressSummary,
   getDocumentType,
+  getReviewHistorySummary,
   PAGE_SIZE,
 } from './report-page-utils';
 import { useReportActions } from './use-report-actions';
@@ -134,59 +136,16 @@ function ReportsPageContent() {
   const allVisibleSelected =
     visibleReportIds.length > 0 &&
     visibleSelectedReportCount === visibleReportIds.length;
-  const reviewHistorySummary = useMemo(() => {
-    if (loadingReviewEvents) {
-      return '加载中';
-    }
-
-    if (reviewEventsError) {
-      return '读取失败';
-    }
-
-    if (reviewEvents.length === 0) {
-      return '暂无记录';
-    }
-
-    const latestEvent = reviewEvents.reduce((latest, event) =>
-      new Date(event.created_at).getTime() > new Date(latest.created_at).getTime()
-        ? event
-        : latest
-    );
-    const latestStatus =
-      reportReviewStatusLabels[latestEvent.review_status] ??
-      latestEvent.review_status;
-
-    return `最近：${latestStatus} · ${formatDateTime(latestEvent.created_at)}`;
-  }, [loadingReviewEvents, reviewEvents, reviewEventsError]);
-  const aiProgressSummary = useMemo(() => {
-    if (loadingProgress) {
-      return '加载中';
-    }
-
-    if (progressError) {
-      return '读取失败';
-    }
-
-    if (!aiProgress) {
-      return '暂无记录';
-    }
-
-    if (aiProgress.total_chunks === 0) {
-      return '暂无分块';
-    }
-
-    const base = `${aiProgress.completed_chunks}/${aiProgress.total_chunks} 完成`;
-
-    if (aiProgress.failed_chunks > 0) {
-      return `${base} · ${aiProgress.failed_chunks} 失败`;
-    }
-
-    if (aiProgress.running_chunks > 0) {
-      return `${base} · ${aiProgress.running_chunks} 运行中`;
-    }
-
-    return `${base} · 无失败`;
-  }, [aiProgress, loadingProgress, progressError]);
+  const reviewHistorySummary = getReviewHistorySummary(
+    reviewEvents,
+    loadingReviewEvents,
+    reviewEventsError
+  );
+  const aiProgressSummary = getAIProgressSummary(
+    aiProgress,
+    loadingProgress,
+    progressError
+  );
 
   const {
     exportingReport,
