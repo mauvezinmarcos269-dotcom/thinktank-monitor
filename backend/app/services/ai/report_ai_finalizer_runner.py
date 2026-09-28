@@ -9,6 +9,7 @@ from app.core.status import NotificationEventType, ReportAIStatus
 from app.db.session import AsyncSessionLocal
 from app.models.user import RoleEnum
 from app.services.ai.report_ai_finalizer import (
+    DEFAULT_MAX_FINALIZATION_RETRIES,
     claim_report_ai_finalization,
     complete_report_ai_finalization,
     fail_report_ai_finalization,
@@ -39,6 +40,19 @@ class FinalReportOutputResult:
     summary: str | None
     commentary: str | None
     errors: tuple[BaseException, ...] = ()
+
+
+def _should_notify_finalization_failure(
+    *,
+    ai_status: str,
+    retry_count: int | None,
+    max_finalization_retries: int = DEFAULT_MAX_FINALIZATION_RETRIES,
+) -> bool:
+    return (
+        ai_status == ReportAIStatus.failed.value
+        and retry_count is not None
+        and retry_count >= max_finalization_retries
+    )
 
 
 async def _generate_final_report_outputs(
@@ -296,7 +310,10 @@ async def run_report_ai_finalization(
                     failed_report.ai_status
                 )
 
-                if final_status == ReportAIStatus.failed.value:
+                if _should_notify_finalization_failure(
+                    ai_status=final_status,
+                    retry_count=retry_count,
+                ):
                     await notification_service.create_for_roles(
                         db,
                         roles={RoleEnum.admin},

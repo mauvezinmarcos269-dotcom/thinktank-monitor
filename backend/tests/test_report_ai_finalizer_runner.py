@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.status import ReportAIStatus
 from app.services.ai import report_ai_finalizer_runner as runner
 
 
@@ -39,6 +40,24 @@ async def test_generate_final_outputs_reuses_existing_commentary(
     assert result.commentary == "已保存评论"
     assert result.errors == ()
     assert calls == ["summary"]
+
+
+def test_finalizer_failure_notification_waits_until_retry_limit() -> None:
+    assert not runner._should_notify_finalization_failure(
+        ai_status=ReportAIStatus.failed.value,
+        retry_count=1,
+        max_finalization_retries=3,
+    )
+    assert runner._should_notify_finalization_failure(
+        ai_status=ReportAIStatus.failed.value,
+        retry_count=3,
+        max_finalization_retries=3,
+    )
+    assert not runner._should_notify_finalization_failure(
+        ai_status=ReportAIStatus.success.value,
+        retry_count=3,
+        max_finalization_retries=3,
+    )
 
 
 @pytest.mark.asyncio

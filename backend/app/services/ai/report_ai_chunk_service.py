@@ -660,6 +660,13 @@ async def reset_queued_report_ai_chunk(
     return chunk
 
 
+def _is_stale_timestamp(
+    value: datetime | None,
+    stale_before: datetime,
+) -> bool:
+    return value is None or value < stale_before
+
+
 async def recover_stale_report_ai_chunk(
     db: AsyncSession,
     chunk_id: int,
@@ -703,8 +710,10 @@ async def recover_stale_report_ai_chunk(
 
     if (
         chunk.status == AIChunkStatus.queued.value
-        and chunk.updated_at
-        < queued_stale_before
+        and _is_stale_timestamp(
+            chunk.updated_at,
+            queued_stale_before,
+        )
     ):
         chunk.status = AIChunkStatus.pending.value
 
@@ -720,8 +729,10 @@ async def recover_stale_report_ai_chunk(
 
     if (
         chunk.status == AIChunkStatus.processing.value
-        and chunk.updated_at
-        < processing_stale_before
+        and _is_stale_timestamp(
+            chunk.updated_at,
+            processing_stale_before,
+        )
     ):
         chunk.status = AIChunkStatus.failed.value
 
