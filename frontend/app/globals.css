@@ -607,6 +607,47 @@ th {
   line-height: 1.45;
 }
 
+.report-task-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 0.16rem 0.48rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.report-task-success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.report-task-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.report-task-danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.report-task-info {
+  border-color: #bae6fd;
+  background: #f0f9ff;
+  color: #075985;
+}
+
+.report-task-muted {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+}
+
 .report-list-meta {
   display: flex;
   flex-wrap: wrap;
@@ -703,7 +744,7 @@ th {
 
 .reading-brief {
   display: grid;
-  grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.2fr) auto;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1fr) minmax(220px, 0.9fr) auto;
   gap: 0.85rem;
   align-items: center;
   border: 1px solid #dbe3ea;
@@ -750,6 +791,42 @@ th {
 
 .reading-brief button {
   min-width: 5rem;
+}
+
+.reading-brief-checklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reading-brief-checklist li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 0.45rem 0.55rem;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.reading-brief-checklist strong {
+  color: #b45309;
+  font-size: 0.78rem;
+}
+
+.reading-brief-checklist .reading-brief-ready {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.reading-brief-checklist .reading-brief-ready strong {
+  color: #15803d;
 }
 
 /* Report Outcome */
@@ -1160,6 +1237,42 @@ th {
     box-shadow 180ms ease;
 }
 
+.review-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.review-quick-actions button {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: start;
+  min-height: 4.2rem;
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  text-align: left;
+}
+
+.review-quick-actions button span {
+  font-weight: 800;
+}
+
+.review-quick-actions button small {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.review-quick-actions .review-quick-action-active {
+  border-color: #155e75;
+  background: #eef8fb;
+  color: #0f5f75;
+}
+
+.review-quick-actions .review-quick-action-active small {
+  color: #155e75;
+}
+
 .metadata-grid dt {
   color: #64748b;
   font-size: 0.8rem;
@@ -1193,6 +1306,11 @@ th {
 .review-note-editor {
   display: grid;
   gap: 0.5rem;
+}
+
+.review-note-editor small {
+  color: #64748b;
+  font-weight: 600;
 }
 
 .review-note-editor button {

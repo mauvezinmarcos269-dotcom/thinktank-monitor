@@ -20,6 +20,28 @@ import {
 } from './report-page-utils';
 import { type ReportDocumentType } from './report-detail-header';
 
+const reviewQuickActions: Array<{
+  status: ReportReviewStatus;
+  label: string;
+  hint: string;
+}> = [
+  {
+    status: 'approved',
+    label: '通过',
+    hint: '成果可交付',
+  },
+  {
+    status: 'needs_rerun',
+    label: '需重跑',
+    hint: '先写明原因',
+  },
+  {
+    status: 'rejected',
+    label: '不采用',
+    hint: '保留处理记录',
+  },
+];
+
 type ReportMetadataGridProps = {
   report: Report;
   documentType: ReportDocumentType;
@@ -64,6 +86,27 @@ export function ReportMetadataGrid({
           <p>确认本篇报告是否可进入正式成果，或记录需重跑、不采用的原因。</p>
         </div>
 
+        {canReview ? (
+          <div className="review-quick-actions" aria-label="复核快捷操作">
+            {reviewQuickActions.map((action) => (
+              <button
+                key={action.status}
+                type="button"
+                className={
+                  report.review_status === action.status
+                    ? 'review-quick-action-active'
+                    : undefined
+                }
+                onClick={() => onReviewStatusChange(action.status)}
+                disabled={updatingReview}
+              >
+                <span>{action.label}</span>
+                <small>{action.hint}</small>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <div className="review-control-grid">
           <label>
             <span>复核状态</span>
@@ -103,6 +146,9 @@ export function ReportMetadataGrid({
             ) : (
               <strong>{report.review_note || '暂无'}</strong>
             )}
+            {canReview ? (
+              <small>{reviewNoteDraft.trim().length} / 4000 字</small>
+            ) : null}
           </label>
         </div>
 

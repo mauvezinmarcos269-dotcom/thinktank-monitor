@@ -108,6 +108,72 @@ function getDeliverableMetaTitle(
   return `已生成：${readyLabels.join('、')}；待生成：${missingLabels.join('、')}`;
 }
 
+function getReportTaskChip(
+  report: Report,
+  deliverableCount: number
+): { label: string; className: string } {
+  if (report.crawl_status === 'failed') {
+    return {
+      label: '抓取失败',
+      className: 'report-task-chip report-task-danger',
+    };
+  }
+
+  if (report.ai_status === 'failed') {
+    return {
+      label: 'AI 失败',
+      className: 'report-task-chip report-task-danger',
+    };
+  }
+
+  if (report.review_status === 'needs_rerun') {
+    return {
+      label: '需重跑',
+      className: 'report-task-chip report-task-warning',
+    };
+  }
+
+  if (report.review_status === 'approved') {
+    return {
+      label: '可导出',
+      className: 'report-task-chip report-task-success',
+    };
+  }
+
+  if (report.review_status === 'rejected') {
+    return {
+      label: '不采用',
+      className: 'report-task-chip report-task-muted',
+    };
+  }
+
+  if (report.ai_status === 'success' && deliverableCount === 3) {
+    return {
+      label: '需老师复核',
+      className: 'report-task-chip report-task-info',
+    };
+  }
+
+  if (isAIProcessing(report)) {
+    return {
+      label: 'AI 处理中',
+      className: 'report-task-chip report-task-warning',
+    };
+  }
+
+  if (deliverableCount > 0) {
+    return {
+      label: '成果待补齐',
+      className: 'report-task-chip report-task-warning',
+    };
+  }
+
+  return {
+    label: '待处理',
+    className: 'report-task-chip report-task-muted',
+  };
+}
+
 export function ReportListItem({
   report,
   source,
@@ -143,6 +209,7 @@ export function ReportListItem({
   ];
   const deliverableCount = deliverableItems.filter((item) => item.ready).length;
   const deliverableTitle = getDeliverableMetaTitle(deliverableItems);
+  const taskChip = getReportTaskChip(report, deliverableCount);
   const reviewNotePreview = getReviewNotePreview(report.review_note);
   const sourceLabel = [
     thinkTank?.name ?? '未知智库',
@@ -194,6 +261,7 @@ export function ReportListItem({
         <span className="report-title" title={report.title}>
           {report.title}
         </span>
+        <span className={taskChip.className}>{taskChip.label}</span>
         <span className={documentType.className}>{documentType.label}</span>
         <span className={workflow.className}>{workflow.label}</span>
         <span className="report-source-line" title={sourceTitle}>

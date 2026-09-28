@@ -18,6 +18,12 @@ type ReportReadingBriefProps = {
   onViewSelect: (view: ReportView) => void;
 };
 
+type ReviewChecklistItem = {
+  label: string;
+  status: string;
+  ready: boolean;
+};
+
 function getNextStep(report: Report): {
   label: string;
   detail: string;
@@ -99,12 +105,42 @@ function getNextStep(report: Report): {
   };
 }
 
+function getReviewChecklist(report: Report): ReviewChecklistItem[] {
+  return [
+    {
+      label: '主要观点',
+      status: countTextChars(report.summary) > 0 ? '可核对' : '待生成',
+      ready: countTextChars(report.summary) > 0,
+    },
+    {
+      label: '深层研判',
+      status: countTextChars(report.commentary) > 0 ? '可核对' : '待生成',
+      ready: countTextChars(report.commentary) > 0,
+    },
+    {
+      label: '全文翻译',
+      status: countTextChars(report.translation) > 0 ? '可核对' : '待生成',
+      ready: countTextChars(report.translation) > 0,
+    },
+    {
+      label: '复核结论',
+      status:
+        report.review_status === 'pending_review'
+          ? '待复核'
+          : (reportReviewStatusLabels[report.review_status] ??
+            report.review_status),
+      ready: report.review_status !== 'pending_review',
+    },
+  ];
+}
+
 export function ReportReadingBrief({
   report,
   onViewSelect,
 }: ReportReadingBriefProps) {
   const workflow = getReportWorkflowState(report);
   const nextStep = getNextStep(report);
+  const checklist = getReviewChecklist(report);
   const summaryCount = countTextChars(report.summary);
   const commentaryCount = countTextChars(report.commentary);
   const translationCount = countTextChars(report.translation);
@@ -137,6 +173,17 @@ export function ReportReadingBrief({
           </dd>
         </div>
       </dl>
+      <ul className="reading-brief-checklist" aria-label="复核清单">
+        {checklist.map((item) => (
+          <li
+            key={item.label}
+            className={item.ready ? 'reading-brief-ready' : undefined}
+          >
+            <span>{item.label}</span>
+            <strong>{item.status}</strong>
+          </li>
+        ))}
+      </ul>
       {nextStep.targetView ? (
         <button type="button" onClick={() => onViewSelect(nextStep.targetView!)}>
           去处理
