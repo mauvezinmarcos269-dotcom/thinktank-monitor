@@ -13,10 +13,7 @@ import {
   getCurrentUser,
   type CurrentUser,
 } from '@/lib/auth';
-import {
-  fetchReports,
-  type Report,
-} from '@/lib/report';
+import { type Report } from '@/lib/report';
 import { ReportBatchActions } from './report-batch-actions';
 import { ReportDetailArticle } from './report-detail-article';
 import { ReportFilterBar } from './report-filter-bar';
@@ -30,6 +27,7 @@ import { useReportActions } from './use-report-actions';
 import { useReportDetail } from './use-report-detail';
 import { useReportFilters } from './use-report-filters';
 import { useReportInstitutions } from './use-report-institutions';
+import { useReportList } from './use-report-list';
 import { useReportPageDerived } from './use-report-page-derived';
 import { useReportSelection } from './use-report-selection';
 
@@ -37,12 +35,10 @@ function ReportsPageContent() {
   const searchParams = useSearchParams();
   const reviewSectionRef = useRef<HTMLDivElement | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
-  const [totalReports, setTotalReports] = useState(0);
 
   const [listError, setListError] = useState<string | null>(null);
   const [taskMessage, setTaskMessage] = useState<string | null>(null);
 
-  const [loadingList, setLoadingList] = useState(true);
   const [highlightReviewSection, setHighlightReviewSection] = useState(false);
 
 
@@ -113,6 +109,24 @@ function ReportsPageContent() {
     handleSourceFilterChange,
     handleWorkflowShortcut,
   } = useReportFilters(resetReportListState);
+  const {
+    totalReports,
+    loadingList,
+  } = useReportList({
+    page,
+    reviewStatusFilter,
+    aiStatusFilter,
+    contentKindFilter,
+    deliverableStatusFilter,
+    keywordFilter,
+    thinkTankFilter,
+    sourceFilter,
+    focusedReportId: Number(searchParams.get('report_id')),
+    setReports,
+    setListError,
+    setSelectedReportIds,
+    handleSelect,
+  });
 
   const canFetchContent = currentUser?.role === 'admin';
   const canRetryAI = currentUser?.role === 'admin';
@@ -211,52 +225,6 @@ function ReportsPageContent() {
       window.clearTimeout(clearTimer);
     };
   }, [selected, searchParams]);
-
-
-  // 加载报告列表
-  useEffect(() => {
-    setLoadingList(true);
-    setListError(null);
-
-    fetchReports({
-      skip: (page - 1) * PAGE_SIZE,
-      limit: PAGE_SIZE,
-      reviewStatus: reviewStatusFilter,
-      aiStatus: aiStatusFilter,
-      contentKind: contentKindFilter,
-      deliverableStatus: deliverableStatusFilter,
-      keyword: keywordFilter,
-      thinkTankId: thinkTankFilter,
-      sourceId: sourceFilter,
-    })
-      .then((data) => {
-        setReports(data.items);
-        setTotalReports(data.total);
-        setSelectedReportIds(new Set());
-
-        const reportId = Number(searchParams.get('report_id'));
-
-        if (reportId) {
-          handleSelect(reportId);
-        } else if (data.items.length > 0) {
-          handleSelect(data.items[0].id);
-        }
-      })
-      .catch((err: Error) => setListError(err.message))
-      .finally(() => setLoadingList(false));
-  }, [
-    page,
-    reviewStatusFilter,
-    aiStatusFilter,
-    contentKindFilter,
-    deliverableStatusFilter,
-    keywordFilter,
-    thinkTankFilter,
-    sourceFilter,
-    searchParams,
-    handleSelect,
-    setSelectedReportIds,
-  ]);
 
   const totalPages = Math.max(1, Math.ceil(totalReports / PAGE_SIZE));
 
