@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.status import NotificationEventType
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.notification import NotificationRead, NotificationUnreadCount
@@ -17,7 +18,7 @@ async def list_notifications(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     unread_only: bool = False,
-    event_type: str | None = None,
+    event_type: NotificationEventType | None = None,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
@@ -25,7 +26,7 @@ async def list_notifications(
         db,
         user_id=current_user.id,
         unread_only=unread_only,
-        event_type=event_type,
+        event_type=event_type.value if event_type is not None else None,
         skip=skip,
         limit=limit,
     )

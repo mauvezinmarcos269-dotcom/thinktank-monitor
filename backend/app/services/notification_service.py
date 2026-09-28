@@ -23,6 +23,7 @@ from app.services.notification_summary import build_daily_summary, count_where
 INSTANT_ALERT_EVENT_TYPES = {
     NotificationEventType.report_created.value,
     NotificationEventType.report_ai_completed.value,
+    NotificationEventType.report_ai_failed.value,
 }
 
 INSTANT_ALERT_PRIORITY_TIERS = {

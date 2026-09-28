@@ -1,6 +1,8 @@
 import logging
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.api.v1 import notifications as notifications_api
 from app.core.config import settings
@@ -19,6 +21,30 @@ def test_format_content_kind_returns_chinese_label() -> None:
     assert service._format_content_kind("pdf") == "PDF 报告"
     assert service._format_content_kind("web_article") == "网页长文"
     assert service._format_content_kind(None) == "未知类型"
+
+
+def test_notifications_endpoint_rejects_unknown_event_type() -> None:
+    app = FastAPI()
+    app.include_router(notifications_api.router, prefix="/notifications")
+    client = TestClient(app)
+
+    async def fake_get_db():
+        yield object()
+
+    async def fake_get_current_user():
+        return type("User", (), {"id": 7})()
+
+    app.dependency_overrides[notifications_api.get_db] = fake_get_db
+    app.dependency_overrides[
+        notifications_api.get_current_user
+    ] = fake_get_current_user
+
+    response = client.get(
+        "/notifications",
+        params={"event_type": "report.unknown"},
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -57,7 +83,7 @@ async def test_notifications_endpoint_passes_event_type_filter(
         object(),  # type: ignore[arg-type]
         type("User", (), {"id": 7})(),  # type: ignore[arg-type]
         unread_only=True,
-        event_type=NotificationEventType.report_review_needs_rerun.value,
+        event_type=NotificationEventType.report_review_needs_rerun,
         skip=10,
         limit=20,
     )
@@ -319,8 +345,26 @@ async def test_instant_alerts_are_disabled_by_default(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("event_type", "title", "message"),
+    [
+        (
+            NotificationEventType.report_ai_completed.value,
+            "报告翻译与评论已完成",
+            "Report title",
+        ),
+        (
+            NotificationEventType.report_ai_failed.value,
+            "报告 AI 处理失败，请处理",
+            "Report title: 模型调用失败",
+        ),
+    ],
+)
 async def test_instant_alerts_dispatch_for_p0_report_events(
     monkeypatch: pytest.MonkeyPatch,
+    event_type: str,
+    title: str,
+    message: str,
 ) -> None:
     called: list[tuple[str, str]] = []
 
@@ -343,21 +387,21 @@ async def test_instant_alerts_dispatch_for_p0_report_events(
                 PriorityTierEnum.p0,
             )
         ),
-        event_type=NotificationEventType.report_ai_completed.value,
-        title="报告翻译与评论已完成",
-        message="Report title",
+        event_type=event_type,
+        title=title,
+        message=message,
         report_id=1,
     )
 
     assert called == [
         (
-            "报告翻译与评论已完成",
+            title,
             (
                 "来源：RAND Corporation\n"
                 "报告：Report title\n"
                 "链接：https://example.org/report\n"
                 "\n"
-                "Report title"
+                f"{message}"
             ),
         )
     ]
