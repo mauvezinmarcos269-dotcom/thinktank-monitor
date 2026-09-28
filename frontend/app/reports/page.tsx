@@ -3,7 +3,6 @@
 import {
   Suspense,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -15,41 +14,29 @@ import {
   type CurrentUser,
 } from '@/lib/auth';
 import {
-  fetchSources,
-  fetchThinkTanks,
-  type Source,
-  type ThinkTank,
-} from '@/lib/institution';
-import {
   fetchReports,
   type Report,
 } from '@/lib/report';
-import {
-  reportAIStatusLabels,
-  reportReviewStatusLabels,
-} from '@/lib/status';
 import { ReportBatchActions } from './report-batch-actions';
 import { ReportDetailArticle } from './report-detail-article';
 import { ReportFilterBar } from './report-filter-bar';
 import { ReportList } from './report-list';
 import {
-  formatDateTime,
   getAIProgressSummary,
-  getDocumentType,
   getReviewHistorySummary,
   PAGE_SIZE,
 } from './report-page-utils';
 import { useReportActions } from './use-report-actions';
 import { useReportDetail } from './use-report-detail';
 import { useReportFilters } from './use-report-filters';
+import { useReportInstitutions } from './use-report-institutions';
+import { useReportPageDerived } from './use-report-page-derived';
 import { useReportSelection } from './use-report-selection';
 
 function ReportsPageContent() {
   const searchParams = useSearchParams();
   const reviewSectionRef = useRef<HTMLDivElement | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
-  const [thinkTanks, setThinkTanks] = useState<ThinkTank[]>([]);
-  const [sources, setSources] = useState<Source[]>([]);
   const [totalReports, setTotalReports] = useState(0);
 
   const [listError, setListError] = useState<string | null>(null);
@@ -61,6 +48,10 @@ function ReportsPageContent() {
 
   const [currentUser, setCurrentUser] =
     useState<CurrentUser | null>(null);
+  const {
+    thinkTanks,
+    sources,
+  } = useReportInstitutions(setListError);
   const {
     selectedReportIds,
     setSelectedReportIds,
@@ -125,17 +116,21 @@ function ReportsPageContent() {
 
   const canFetchContent = currentUser?.role === 'admin';
   const canRetryAI = currentUser?.role === 'admin';
-  const sourceOptions = thinkTankFilter
-    ? sources.filter((source) => source.think_tank_id === thinkTankFilter)
-    : sources;
-  const sourceById = useMemo(
-    () => new Map(sources.map((source) => [source.id, source])),
-    [sources]
-  );
-  const thinkTankById = useMemo(
-    () => new Map(thinkTanks.map((thinkTank) => [thinkTank.id, thinkTank])),
-    [thinkTanks]
-  );
+  const {
+    sourceOptions,
+    sourceById,
+    thinkTankById,
+    selectedDocumentType,
+    selectedSource,
+    selectedThinkTank,
+    adminDetailsSummary,
+    aiActionLabel,
+  } = useReportPageDerived({
+    selected,
+    sources,
+    thinkTanks,
+    thinkTankFilter,
+  });
   const reviewHistorySummary = getReviewHistorySummary(
     reviewEvents,
     loadingReviewEvents,
@@ -192,18 +187,6 @@ function ReportsPageContent() {
   useEffect(() => {
     const user = getCurrentUser();
     setCurrentUser(user);
-  }, []);
-
-  useEffect(() => {
-    Promise.all([
-      fetchThinkTanks(),
-      fetchSources(),
-    ])
-      .then(([nextThinkTanks, nextSources]) => {
-        setThinkTanks(nextThinkTanks);
-        setSources(nextSources);
-      })
-      .catch((err: Error) => setListError(err.message));
   }, []);
 
   useEffect(() => {
@@ -276,24 +259,6 @@ function ReportsPageContent() {
   ]);
 
   const totalPages = Math.max(1, Math.ceil(totalReports / PAGE_SIZE));
-  const selectedDocumentType = selected ? getDocumentType(selected) : null;
-  const selectedSource = selected ? sourceById.get(selected.source_id) : null;
-  const selectedThinkTank = selectedSource
-    ? thinkTankById.get(selectedSource.think_tank_id)
-    : null;
-  const adminDetailsSummary =
-    selected && selectedDocumentType
-      ? [
-          reportReviewStatusLabels[selected.review_status] ??
-            selected.review_status,
-          reportAIStatusLabels[selected.ai_status] ?? selected.ai_status,
-          selectedDocumentType.label,
-        ].join(' · ')
-      : '暂无报告';
-  const aiActionLabel =
-    selected?.ai_status === 'skipped'
-      ? '进入 AI 处理'
-      : '重试 AI 处理';
 
   return (
     <AppShell>
