@@ -8,6 +8,7 @@ import { crawlRunStatusLabels, priorityTierLabels, regionFocusLabels } from '@/l
 type SourceHealthListProps = {
   sources: SourceHealth[];
   loading: boolean;
+  hasActiveFilter: boolean;
   crawlingSourceId: number | null;
   expandedRunId: number | null;
   candidateLoadingRunId: number | null;
@@ -110,6 +111,7 @@ function CrawlRunQualitySummary({ error }: { error: string | null }) {
 export function SourceHealthList({
   sources,
   loading,
+  hasActiveFilter,
   crawlingSourceId,
   expandedRunId,
   candidateLoadingRunId,
@@ -130,7 +132,7 @@ export function SourceHealthList({
   formatDuration,
 }: SourceHealthListProps) {
   if (sources.length === 0 && !loading) {
-    return <p>暂无来源。</p>;
+    return <p>{hasActiveFilter ? '暂无匹配来源。' : '暂无来源。'}</p>;
   }
 
   return (

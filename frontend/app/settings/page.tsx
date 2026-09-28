@@ -34,12 +34,16 @@ import {
   formatDuration,
   getLatestRun,
   getSaveRate,
+  getSourceHealthFilterCounts,
   getSourceReviewReason,
   healthBadgeClasses,
   healthLabels,
+  matchesSourceHealthFilter,
   rolloutStageBadgeClasses,
   rolloutStageLabels,
   sortSourceHealth,
+  sourceHealthFilterOptions,
+  type SourceHealthFilter,
   sourceTypeOptions,
 } from './settings-page-utils';
 import { SourceCreateForm } from './source-create-form';
@@ -51,6 +55,9 @@ export default function SettingsPage() {
   const [stats, setStats] = useState<InstitutionStats | null>(null);
   const [thinkTanks, setThinkTanks] = useState<ThinkTank[]>([]);
   const [sourceHealth, setSourceHealth] = useState<SourceHealth[]>([]);
+  const [sourceHealthFilter, setSourceHealthFilter] =
+    useState<SourceHealthFilter>('all');
+  const [sourceHealthSearch, setSourceHealthSearch] = useState('');
   const [sourceHealthSummary, setSourceHealthSummary] =
     useState<SourceHealthSummary | null>(null);
   const [missingSources, setMissingSources] = useState<ThinkTank[]>([]);
@@ -106,6 +113,46 @@ export default function SettingsPage() {
       )
       .slice(0, 8);
   }, [sourceHealth]);
+
+  const sourceHealthFilterCounts = useMemo(
+    () => getSourceHealthFilterCounts(sourceHealth),
+    [sourceHealth]
+  );
+
+  const filteredSourceHealth = useMemo(
+    () => {
+      const keyword = sourceHealthSearch.trim().toLowerCase();
+
+      return sourceHealth.filter((source) => {
+        if (!matchesSourceHealthFilter(source, sourceHealthFilter)) {
+          return false;
+        }
+
+        if (!keyword) {
+          return true;
+        }
+
+        return [
+          source.think_tank_name,
+          source.think_tank_key,
+          source.think_tank_country,
+          source.url,
+          source.health_reason,
+          source.diagnosis_label,
+          source.diagnosis_advice,
+          source.rollout_advice,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(keyword);
+      });
+    },
+    [sourceHealth, sourceHealthFilter, sourceHealthSearch]
+  );
+  const activeSourceHealthFilterLabel =
+    sourceHealthFilterOptions.find(
+      (option) => option.value === sourceHealthFilter
+    )?.label ?? '全部';
 
   async function loadSettings() {
     setLoading(true);
@@ -479,9 +526,60 @@ export default function SettingsPage() {
           </button>
         </div>
 
+        <div className="source-health-filter-bar" aria-label="来源健康筛选">
+          {sourceHealthFilterOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={
+                sourceHealthFilter === option.value
+                  ? 'source-health-filter-active'
+                  : undefined
+              }
+              onClick={() => setSourceHealthFilter(option.value)}
+              aria-pressed={sourceHealthFilter === option.value}
+            >
+              <span>{option.label}</span>
+              <strong>{sourceHealthFilterCounts[option.value] ?? 0}</strong>
+            </button>
+          ))}
+        </div>
+        <label className="source-health-search">
+          <span>搜索来源</span>
+          <input
+            type="search"
+            value={sourceHealthSearch}
+            onChange={(event) => setSourceHealthSearch(event.target.value)}
+            placeholder="输入机构、国家、URL 或问题类型"
+          />
+        </label>
+        <div className="source-health-filter-summary">
+          <span>
+            当前显示 {filteredSourceHealth.length} / {sourceHealth.length} 个来源
+            {sourceHealthFilter !== 'all'
+              ? `，筛选：${activeSourceHealthFilterLabel}`
+              : ''}
+            {sourceHealthSearch.trim()
+              ? `，搜索：${sourceHealthSearch.trim()}`
+              : ''}
+          </span>
+          {sourceHealthFilter !== 'all' || sourceHealthSearch.trim() ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSourceHealthFilter('all');
+                setSourceHealthSearch('');
+              }}
+            >
+              清除筛选
+            </button>
+          ) : null}
+        </div>
+
         <SourceHealthList
-          sources={sourceHealth}
+          sources={filteredSourceHealth}
           loading={loading}
+          hasActiveFilter={sourceHealthFilter !== 'all'}
           crawlingSourceId={crawlingSourceId}
           expandedRunId={expandedRunId}
           candidateLoadingRunId={candidateLoadingRunId}

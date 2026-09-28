@@ -77,6 +77,28 @@ export const candidateReasonOptions = [
 
 export const candidatePageSize = 50;
 
+export type SourceHealthFilter =
+  | 'all'
+  | 'needs_review'
+  | 'crawl_attention'
+  | 'document_gate_failed'
+  | 'relevance'
+  | 'no_candidates'
+  | 'duplicate_candidates';
+
+export const sourceHealthFilterOptions: Array<{
+  value: SourceHealthFilter;
+  label: string;
+}> = [
+  { value: 'all', label: '全部' },
+  { value: 'needs_review', label: '需处理' },
+  { value: 'crawl_attention', label: '失败/未抓取' },
+  { value: 'document_gate_failed', label: '文档检查失败' },
+  { value: 'relevance', label: '涉华判断' },
+  { value: 'no_candidates', label: '无候选' },
+  { value: 'duplicate_candidates', label: '重复候选' },
+];
+
 const diagnosisWeight: Record<string, number> = {
   document_gate_failed: 0,
   relevance_gate_failed: 1,
@@ -197,4 +219,47 @@ export function getSourceReviewReason(source: SourceHealth): string | null {
   }
 
   return null;
+}
+
+export function matchesSourceHealthFilter(
+  source: SourceHealth,
+  filter: SourceHealthFilter
+): boolean {
+  if (filter === 'all') {
+    return true;
+  }
+
+  if (filter === 'needs_review') {
+    return getSourceReviewReason(source) !== null;
+  }
+
+  if (filter === 'crawl_attention') {
+    return ['failed', 'never'].includes(source.health_status);
+  }
+
+  if (filter === 'document_gate_failed') {
+    return source.diagnosis_code === 'document_gate_failed';
+  }
+
+  if (filter === 'relevance') {
+    return ['relevance_gate_failed', 'non_china_candidates'].includes(
+      source.diagnosis_code
+    );
+  }
+
+  return source.diagnosis_code === filter;
+}
+
+export function getSourceHealthFilterCounts(
+  sources: SourceHealth[]
+): Record<SourceHealthFilter, number> {
+  return sourceHealthFilterOptions.reduce(
+    (counts, option) => ({
+      ...counts,
+      [option.value]: sources.filter((source) =>
+        matchesSourceHealthFilter(source, option.value)
+      ).length,
+    }),
+    {} as Record<SourceHealthFilter, number>
+  );
 }

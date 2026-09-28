@@ -1455,6 +1455,74 @@ th {
 
 /* Source Health */
 
+.source-health-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.source-health-filter-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+.source-health-filter-bar button strong {
+  min-width: 1.6rem;
+  border-radius: 999px;
+  background: #eef2f7;
+  padding: 0.08rem 0.42rem;
+  color: #0f172a;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.source-health-filter-bar .source-health-filter-active {
+  border-color: #155e75;
+  background: #155e75;
+  color: #ffffff;
+}
+
+.source-health-filter-bar .source-health-filter-active strong {
+  background: #dff6fb;
+  color: #0f5f75;
+}
+
+.source-health-search {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+  max-width: 520px;
+}
+
+.source-health-search span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.source-health-search input {
+  width: 100%;
+}
+
+.source-health-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -0.25rem 0 0.9rem;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.source-health-filter-summary button {
+  padding: 0.35rem 0.65rem;
+}
+
 .source-health-list {
   display: grid;
   gap: 0.75rem;
