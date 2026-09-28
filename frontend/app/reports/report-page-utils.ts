@@ -82,6 +82,13 @@ export const contentKindOptions: ReportContentKind[] = [
   'web_article',
 ];
 
+const aiProcessingStatuses = [
+  'queued',
+  'processing',
+  'finalize_queued',
+  'finalizing',
+] as const;
+
 export function getInitialView(value: string | null): ReportView {
   if (value && reportViewKeys.includes(value as ReportView)) {
     return value as ReportView;
@@ -113,29 +120,27 @@ export function getPreferredReportView(
   return 'content';
 }
 
-export function formatDateTime(value: string | null): string {
+function parseDateTime(value: string | null): Date | null {
   if (!value) {
-    return '未知';
+    return null;
   }
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
-  return date.toLocaleString();
+export function formatDateTime(value: string | null): string {
+  const date = parseDateTime(value);
+
+  return date ? date.toLocaleString() : value || '未知';
 }
 
 export function formatShortDate(value: string | null): string {
-  if (!value) {
-    return '未知';
-  }
+  const date = parseDateTime(value);
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
+  if (!date) {
+    return value || '未知';
   }
 
   return date.toLocaleDateString('zh-CN', {
@@ -176,8 +181,8 @@ export function getDocumentType(report: Report): {
 }
 
 export function isAIProcessing(report: Report): boolean {
-  return ['queued', 'processing', 'finalize_queued', 'finalizing'].includes(
-    report.ai_status
+  return aiProcessingStatuses.includes(
+    report.ai_status as (typeof aiProcessingStatuses)[number]
   );
 }
 
@@ -330,11 +335,7 @@ export function getReportWorkflowState(report: Report): ReportWorkflowState {
     };
   }
 
-  if (
-    ['processing', 'finalize_queued', 'finalizing', 'queued'].includes(
-      report.ai_status
-    )
-  ) {
+  if (isAIProcessing(report)) {
     return {
       label: '正在生成成果',
       className: 'badge badge-warning',

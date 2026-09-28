@@ -52,6 +52,23 @@ async function copyTextToClipboard(text: string) {
   await navigator.clipboard.writeText(text);
 }
 
+function replaceReportById(reports: Report[], updated: Report): Report[] {
+  return reports.map((report) =>
+    report.id === updated.id ? updated : report
+  );
+}
+
+function updateSelectedReport(
+  current: Report | null,
+  updated: Report
+): Report | null {
+  return current?.id === updated.id ? updated : current;
+}
+
+function buildReportLookup(reports: Report[]): Map<number, Report> {
+  return new Map(reports.map((report) => [report.id, report]));
+}
+
 export function useReportActions({
   selected,
   activeView,
@@ -192,9 +209,7 @@ export function useReportActions({
       });
 
       setSelected(updated);
-      setReports((current) =>
-        current.map((report) => (report.id === updated.id ? updated : report))
-      );
+      setReports((current) => replaceReportById(current, updated));
       await loadReviewEvents(updated.id);
       setTaskMessage('复核状态已更新。');
     } catch (err) {
@@ -219,9 +234,7 @@ export function useReportActions({
       });
 
       setSelected(updated);
-      setReports((current) =>
-        current.map((report) => (report.id === updated.id ? updated : report))
-      );
+      setReports((current) => replaceReportById(current, updated));
       await loadReviewEvents(updated.id);
       setTaskMessage('复核意见已保存。');
     } catch (err) {
@@ -245,18 +258,15 @@ export function useReportActions({
         Array.from(selectedReportIds),
         batchReviewStatus
       );
+      const updatedById = buildReportLookup(response.items);
 
       setReports((current) =>
-        current.map((report) =>
-          response.items.find((updated) => updated.id === report.id) ?? report
-        )
+        current.map((report) => updatedById.get(report.id) ?? report)
       );
-      setSelected((current) =>
-        current
-          ? response.items.find((updated) => updated.id === current.id) ??
-            current
-          : current
-      );
+      setSelected((current) => {
+        const updated = current ? updatedById.get(current.id) : null;
+        return updated ? updateSelectedReport(current, updated) : current;
+      });
       setSelectedReportIds(new Set());
       setTaskMessage(
         response.not_found_ids.length > 0
