@@ -77,6 +77,20 @@ export const candidateReasonOptions = [
 
 export const candidatePageSize = 50;
 
+const diagnosisWeight: Record<string, number> = {
+  document_gate_failed: 0,
+  relevance_gate_failed: 1,
+  non_china_candidates: 2,
+  no_candidates: 3,
+  duplicate_candidates: 4,
+  no_reports_saved: 5,
+  parser: 6,
+  http_status: 7,
+  network: 8,
+  short_pdf: 9,
+  ai_queue: 10,
+};
+
 export function formatDateTime(value: string | null): string {
   if (!value) {
     return '暂无';
@@ -111,7 +125,17 @@ export function sortSourceHealth(items: SourceHealth[]): SourceHealth[] {
   };
 
   return [...items].sort((left, right) => {
-    return weight[left.health_status] - weight[right.health_status];
+    const healthDifference =
+      weight[left.health_status] - weight[right.health_status];
+
+    if (healthDifference !== 0) {
+      return healthDifference;
+    }
+
+    return (
+      (diagnosisWeight[left.diagnosis_code] ?? 99) -
+      (diagnosisWeight[right.diagnosis_code] ?? 99)
+    );
   });
 }
 
@@ -157,7 +181,15 @@ export function getSourceReviewReason(source: SourceHealth): string | null {
   }
 
   if (latestRun && latestRun.found_count > 0 && latestRun.saved_count === 0) {
-    return '有候选但未入库';
+    return source.diagnosis_label || '有候选但未入库';
+  }
+
+  if (
+    source.health_status === 'healthy' &&
+    source.report_count === 0 &&
+    !['ok', 'unknown'].includes(source.diagnosis_code)
+  ) {
+    return source.diagnosis_label;
   }
 
   if (latestRun && latestRun.status === 'running') {

@@ -3,11 +3,7 @@
 import { Fragment, type ReactNode } from 'react';
 
 import { type SourceCreateInput, type SourceHealth } from '@/lib/institution';
-import {
-  crawlRunStatusLabels,
-  priorityTierLabels,
-  regionFocusLabels,
-} from '@/lib/status';
+import { crawlRunStatusLabels, priorityTierLabels, regionFocusLabels } from '@/lib/status';
 
 type SourceHealthListProps = {
   sources: SourceHealth[];
@@ -31,6 +27,85 @@ type SourceHealthListProps = {
   formatDateTime: (value: string | null) => string;
   formatDuration: (value: number | null) => string;
 };
+
+type CrawlQualitySummary = {
+  metrics: { label: string; value: string }[];
+  skips: string[];
+};
+
+function parseCrawlQualitySummary(text: string | null): CrawlQualitySummary | null {
+  if (!text?.startsWith('质量检查：')) {
+    return null;
+  }
+
+  const body = text.replace(/^质量检查：/, '');
+  const parts = body
+    .split('；')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const metrics: CrawlQualitySummary['metrics'] = [];
+  const skips: string[] = [];
+
+  parts.forEach((part) => {
+    if (part.startsWith('跳过：')) {
+      skips.push(
+        ...part
+          .replace(/^跳过：/, '')
+          .split('，')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      );
+      return;
+    }
+
+    const metricMatch = part.match(/^(原始候选|有效去重后|入库)\s+(\d+)\s+条$/);
+    if (metricMatch) {
+      metrics.push({
+        label: metricMatch[1],
+        value: metricMatch[2],
+      });
+    }
+  });
+
+  if (metrics.length === 0 && skips.length === 0) {
+    return null;
+  }
+
+  return { metrics, skips };
+}
+
+function CrawlRunQualitySummary({ error }: { error: string | null }) {
+  const summary = parseCrawlQualitySummary(error);
+
+  if (!summary) {
+    return <span className="crawl-run-error">{error ?? '无'}</span>;
+  }
+
+  return (
+    <div className="crawl-quality-summary">
+      {summary.metrics.length > 0 ? (
+        <div className="crawl-quality-metrics">
+          {summary.metrics.map((metric) => (
+            <span key={metric.label} className="crawl-quality-metric">
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {summary.skips.length > 0 ? (
+        <div className="crawl-quality-skips">
+          {summary.skips.map((skip) => (
+            <span key={skip} className="badge">
+              {skip}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <p className="crawl-run-error">{error}</p>
+    </div>
+  );
+}
 
 export function SourceHealthList({
   sources,
@@ -72,27 +147,16 @@ export function SourceHealthList({
                   <strong>{source.think_tank_name}</strong>
                   <span className="muted"> / {source.think_tank_country}</span>
                 </div>
-                <span className={healthBadgeClasses[source.health_status]}>
-                  {healthLabels[source.health_status]}
-                </span>
+                <span className={healthBadgeClasses[source.health_status]}>{healthLabels[source.health_status]}</span>
               </div>
               <a href={source.url} target="_blank" rel="noreferrer">
                 {source.url}
               </a>
               <div className="source-health-priority">
-                <span className="badge">
-                  {priorityTierLabels[source.think_tank_priority_tier]}
-                </span>
-                <span className="badge">
-                  {regionFocusLabels[source.think_tank_region_focus]}
-                </span>
-                <span
-                  className={
-                    rolloutStageBadgeClasses[source.rollout_stage] ?? 'badge'
-                  }
-                >
-                  {rolloutStageLabels[source.rollout_stage] ??
-                    source.rollout_stage}
+                <span className="badge">{priorityTierLabels[source.think_tank_priority_tier]}</span>
+                <span className="badge">{regionFocusLabels[source.think_tank_region_focus]}</span>
+                <span className={rolloutStageBadgeClasses[source.rollout_stage] ?? 'badge'}>
+                  {rolloutStageLabels[source.rollout_stage] ?? source.rollout_stage}
                 </span>
               </div>
               <p>{source.health_reason}</p>
@@ -100,9 +164,7 @@ export function SourceHealthList({
               {sourceReviewReason ? (
                 <p className="source-attention">需处理：{sourceReviewReason}</p>
               ) : (
-                <p className="source-stable">
-                  当前无需人工处理，继续观察自动抓取结果。
-                </p>
+                <p className="source-stable">当前无需人工处理，继续观察自动抓取结果。</p>
               )}
 
               <div className="source-health-actions">
@@ -112,16 +174,13 @@ export function SourceHealthList({
                   disabled={
                     crawlingSourceId === source.id ||
                     !source.is_active ||
-                    !crawlableSourceTypes.has(
-                      source.source_type as SourceCreateInput['source_type']
-                    )
+                    !crawlableSourceTypes.has(source.source_type as SourceCreateInput['source_type'])
                   }
                 >
                   {crawlingSourceId === source.id ? '提交中……' : '手动重试'}
                 </button>
                 <span className="muted">
-                  最近发现 {latestRun?.found_count ?? 0}，入库{' '}
-                  {latestRun?.saved_count ?? 0}
+                  最近发现 {latestRun?.found_count ?? 0}，入库 {latestRun?.saved_count ?? 0}
                 </span>
               </div>
             </div>
@@ -130,9 +189,7 @@ export function SourceHealthList({
               <div>
                 <dt>健康状态</dt>
                 <dd>
-                  <span className={healthBadgeClasses[source.health_status]}>
-                    {healthLabels[source.health_status]}
-                  </span>
+                  <span className={healthBadgeClasses[source.health_status]}>{healthLabels[source.health_status]}</span>
                 </dd>
               </div>
               <div>
@@ -142,9 +199,7 @@ export function SourceHealthList({
               <div>
                 <dt>优先级</dt>
                 <dd>
-                  <span className="badge">
-                    {priorityTierLabels[source.think_tank_priority_tier]}
-                  </span>
+                  <span className="badge">{priorityTierLabels[source.think_tank_priority_tier]}</span>
                 </dd>
               </div>
               <div>
@@ -180,31 +235,21 @@ export function SourceHealthList({
               <div>
                 <dt>试运行策略</dt>
                 <dd>
-                  <span
-                    className={
-                      rolloutStageBadgeClasses[source.rollout_stage] ?? 'badge'
-                    }
-                  >
-                    {rolloutStageLabels[source.rollout_stage] ??
-                      source.rollout_stage}
+                  <span className={rolloutStageBadgeClasses[source.rollout_stage] ?? 'badge'}>
+                    {rolloutStageLabels[source.rollout_stage] ?? source.rollout_stage}
                   </span>
                 </dd>
               </div>
               <div>
                 <dt>文档口径</dt>
-                <dd>
-                  {documentPolicyLabels[source.document_policy] ??
-                    source.document_policy}
-                </dd>
+                <dd>{documentPolicyLabels[source.document_policy] ?? source.document_policy}</dd>
               </div>
             </dl>
 
             <p className="source-advice">{source.diagnosis_advice}</p>
             <p className="source-advice">{source.rollout_advice}</p>
 
-            {source.last_error ? (
-              <p className="source-error">{source.last_error}</p>
-            ) : null}
+            {source.last_error ? <p className="source-error">{source.last_error}</p> : null}
 
             <div className="crawl-run-history">
               <h3>最近抓取记录</h3>
@@ -231,11 +276,7 @@ export function SourceHealthList({
                           <tr>
                             <td>{formatDateTime(run.started_at)}</td>
                             <td>
-                              <span
-                                className={
-                                  crawlRunBadgeClasses[run.status] ?? 'badge'
-                                }
-                              >
+                              <span className={crawlRunBadgeClasses[run.status] ?? 'badge'}>
                                 {crawlRunStatusLabels[run.status] ?? run.status}
                               </span>
                             </td>
@@ -243,8 +284,8 @@ export function SourceHealthList({
                             <td>{run.saved_count}</td>
                             <td>{getSaveRate(run)}%</td>
                             <td>{formatDuration(run.duration_seconds)}</td>
-                            <td className="crawl-run-error">
-                              {run.error ?? '无'}
+                            <td>
+                              <CrawlRunQualitySummary error={run.error} />
                             </td>
                             <td>
                               <button
@@ -263,9 +304,7 @@ export function SourceHealthList({
                           {expandedRunId === run.id ? (
                             <tr>
                               <td colSpan={8}>
-                                <div className="candidate-detail">
-                                  {renderCandidateDetail(run.id)}
-                                </div>
+                                <div className="candidate-detail">{renderCandidateDetail(run.id)}</div>
                               </td>
                             </tr>
                           ) : null}

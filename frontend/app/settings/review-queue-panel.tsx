@@ -5,6 +5,7 @@ import {
   priorityTierLabels,
   regionFocusLabels,
 } from '@/lib/status';
+import { rolloutStageLabels } from './settings-page-utils';
 
 type ReviewQueueItem = {
   source: SourceHealth;
@@ -59,6 +60,11 @@ export function ReviewQueuePanel({
                 <span className={healthBadgeClasses[source.health_status]}>
                   {reason}
                 </span>
+                {source.diagnosis_advice ? (
+                  <p className="review-queue-advice">
+                    {source.diagnosis_advice}
+                  </p>
+                ) : null}
                 <dl>
                   <div>
                     <dt>最近发现</dt>
@@ -77,6 +83,17 @@ export function ReviewQueuePanel({
                   <div>
                     <dt>最近抓取</dt>
                     <dd>{formatDateTime(source.last_crawled_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>问题类型</dt>
+                    <dd>{source.diagnosis_label}</dd>
+                  </div>
+                  <div>
+                    <dt>入库策略</dt>
+                    <dd>
+                      {rolloutStageLabels[source.rollout_stage] ??
+                        source.rollout_stage}
+                    </dd>
                   </div>
                 </dl>
               </li>

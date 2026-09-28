@@ -62,6 +62,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 p
 - 美国核心网站解析器在 `backend/app/services/crawler/us_core_parser.py`。
 - “重磅报告”预筛规则在 `backend/app/services/crawler/report_candidate_filter.py`。
 - 候选报告统计和导出由 `CrawlCandidateService` 提供。
+- 来源健康诊断由 `SourceDiagnosisService` 提供，健康接口会结合 `sources.last_error` 和最近一次 `crawl_runs.error` 中的质量摘要。
 - 单个来源的接入、试抓、前端复核、升级和停用流程见 `docs/source-onboarding-playbook.md`。
 
 新增解析器时建议同步补充：
@@ -69,6 +70,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 p
 - 单元测试
 - `docs/parser-priority.md`
 - 来源健康或候选报告相关验证
+- 如果新增候选跳过原因或质量摘要文案，同步维护 `SourceDiagnosisService`、设置页来源健康展示和服务级测试。
 
 ## 通知与摘要
 

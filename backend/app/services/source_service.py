@@ -169,9 +169,13 @@ class SourceService:
             latest_report_created_at,
         ) in rows:
             health_status, health_reason = self._derive_health(source)
+            recent_crawl_runs = recent_runs_by_source.get(source.id, [])
+            diagnosis_error_text = source.last_error
+            if not diagnosis_error_text and recent_crawl_runs:
+                diagnosis_error_text = recent_crawl_runs[0].error
             diagnosis = classify_source_diagnosis(
                 crawl_status=source.last_crawl_status,
-                error_text=source.last_error,
+                error_text=diagnosis_error_text,
                 saved_report_count=int(report_count or 0),
             )
             rollout_policy = get_source_rollout_policy(
@@ -207,7 +211,7 @@ class SourceService:
                     document_policy=rollout_policy.document_policy,
                     can_run_pilot_crawl=rollout_policy.can_run_pilot_crawl,
                     rollout_advice=rollout_policy.advice,
-                    recent_crawl_runs=recent_runs_by_source.get(source.id, []),
+                    recent_crawl_runs=recent_crawl_runs,
                 )
             )
 

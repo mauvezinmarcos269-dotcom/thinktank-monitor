@@ -19,6 +19,51 @@ DEFAULT_DIAGNOSIS = SourceDiagnosis(
 )
 
 
+def _classify_success_without_reports(error_text: str | None) -> SourceDiagnosis:
+    text = error_text or ""
+
+    if "原始候选 0 条" in text:
+        return SourceDiagnosis(
+            code="no_candidates",
+            label="未发现候选报告",
+            advice="抓取成功但未解析出候选条目，请检查来源入口、列表页结构或是否需要新增发现入口。",
+        )
+
+    if "PDF 获取或页数/文本检查失败" in text:
+        return SourceDiagnosis(
+            code="document_gate_failed",
+            label="候选未通过文档检查",
+            advice="抓取成功但候选未通过 PDF 获取、页数或文本检查，请查看候选样例中的链接、页数和错误摘要。",
+        )
+
+    if "涉华判断失败" in text:
+        return SourceDiagnosis(
+            code="relevance_gate_failed",
+            label="涉华判断失败",
+            advice="抓取成功但 AI 涉华判断失败，请检查模型配置、队列和候选正文。",
+        )
+
+    if "非涉华" in text:
+        return SourceDiagnosis(
+            code="non_china_candidates",
+            label="候选未通过涉华判断",
+            advice="抓取成功但候选被判定为非涉华；如疑似误判，请查看候选涉华判断说明。",
+        )
+
+    if "已入库重复" in text or "同一来源内重复" in text:
+        return SourceDiagnosis(
+            code="duplicate_candidates",
+            label="候选均为重复",
+            advice="抓取成功但候选已重复或已入库，通常无需处理；可查看候选列表确认是否有新增报告。",
+        )
+
+    return SourceDiagnosis(
+        code="no_reports_saved",
+        label="暂无入库报告",
+        advice="抓取成功但未保存报告，可能是无新增、重复、非涉华或报告不满足页数要求。",
+    )
+
+
 def classify_source_diagnosis(
     *,
     crawl_status: CrawlStatusEnum | str,
@@ -42,11 +87,7 @@ def classify_source_diagnosis(
         )
 
     if crawl_status == CrawlStatusEnum.success and saved_report_count == 0:
-        return SourceDiagnosis(
-            code="no_reports_saved",
-            label="暂无入库报告",
-            advice="抓取成功但未保存报告，可能是无新增、重复、非涉华或报告不满足页数要求。",
-        )
+        return _classify_success_without_reports(error_text)
 
     if crawl_status == CrawlStatusEnum.success:
         return SourceDiagnosis(
