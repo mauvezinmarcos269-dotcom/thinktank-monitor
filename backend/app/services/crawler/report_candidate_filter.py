@@ -74,6 +74,7 @@ LIGHTWEIGHT_TITLE_TERMS = (
 CHINA_TERMS = (
     "beijing",
     "belt and road",
+    "ccp",
     "china",
     "chinese",
     "hong kong",

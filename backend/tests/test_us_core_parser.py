@@ -33,6 +33,10 @@ def test_china_signal_requires_word_boundaries_for_short_acronyms() -> None:
         title="PLA modernization report",
         url="https://example.org/report/pla-modernization",
     )
+    assert has_china_signal(
+        title="Countering CCP influence operations",
+        url="https://example.org/report/countering-ccp-influence",
+    )
     assert not has_china_signal(
         title="Making the Varsity Cut: Who Plays High School Sports",
         url="https://example.org/report/making-the-varsity-cut",
@@ -40,6 +44,10 @@ def test_china_signal_requires_word_boundaries_for_short_acronyms() -> None:
     assert not has_china_signal(
         title="The Marketplace of Ideas",
         url="https://example.org/report/marketplace-of-ideas",
+    )
+    assert not has_china_signal(
+        title="Acceptance and public trust",
+        url="https://example.org/report/acceptance-and-public-trust",
     )
 
 
