@@ -1,4 +1,7 @@
-import { type Report } from '@/lib/report';
+import {
+  type Report,
+  type ReportBatchExportFormat,
+} from '@/lib/report';
 import {
   reportReviewStatusLabels,
   type ReportAIStatus,
@@ -13,6 +16,11 @@ export type ReportWorkflowState = {
   label: string;
   className: string;
   hint: string;
+};
+
+export type ReportListBusyState = {
+  isReportListBusy: boolean;
+  reportListBusyMessage: string;
 };
 
 export const reportViewKeys: ReportView[] = [
@@ -251,6 +259,42 @@ export function getAIProgressSummary(
   }
 
   return `${base} · 无失败`;
+}
+
+export function getReportListBusyState({
+  submittingAIReportId,
+  submittingBatchReview,
+  exportingBatchFormat,
+}: {
+  submittingAIReportId: number | null;
+  submittingBatchReview: boolean;
+  exportingBatchFormat: ReportBatchExportFormat | null;
+}): ReportListBusyState {
+  if (submittingAIReportId !== null) {
+    return {
+      isReportListBusy: true,
+      reportListBusyMessage: 'AI 任务提交中，暂不可切换筛选。',
+    };
+  }
+
+  if (submittingBatchReview) {
+    return {
+      isReportListBusy: true,
+      reportListBusyMessage: '批量复核处理中，暂不可切换筛选。',
+    };
+  }
+
+  if (exportingBatchFormat !== null) {
+    return {
+      isReportListBusy: true,
+      reportListBusyMessage: '批量导出中，暂不可切换筛选。',
+    };
+  }
+
+  return {
+    isReportListBusy: false,
+    reportListBusyMessage: '',
+  };
 }
 
 export function getReportWorkflowState(report: Report): ReportWorkflowState {

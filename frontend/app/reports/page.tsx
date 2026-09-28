@@ -2,27 +2,21 @@
 
 import {
   Suspense,
-  useEffect,
-  useRef,
   useState,
 } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { AppShell } from '@/components/app-shell';
-import {
-  getCurrentUser,
-  type CurrentUser,
-} from '@/lib/auth';
 import { type Report } from '@/lib/report';
-import { ReportBatchActions } from './report-batch-actions';
-import { ReportDetailArticle } from './report-detail-article';
-import { ReportFilterBar } from './report-filter-bar';
-import { ReportList } from './report-list';
+import { ReportDetailPanel } from './report-detail-panel';
+import { ReportListPanel } from './report-list-panel';
 import {
   getAIProgressSummary,
+  getReportListBusyState,
   getReviewHistorySummary,
   PAGE_SIZE,
 } from './report-page-utils';
+import { useCurrentUser } from './use-current-user';
 import { useReportActions } from './use-report-actions';
 import { useReportDetail } from './use-report-detail';
 import { useReportFilters } from './use-report-filters';
@@ -30,20 +24,16 @@ import { useReportInstitutions } from './use-report-institutions';
 import { useReportList } from './use-report-list';
 import { useReportPageDerived } from './use-report-page-derived';
 import { useReportSelection } from './use-report-selection';
+import { useReviewFocus } from './use-review-focus';
 
 function ReportsPageContent() {
   const searchParams = useSearchParams();
-  const reviewSectionRef = useRef<HTMLDivElement | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
 
   const [listError, setListError] = useState<string | null>(null);
   const [taskMessage, setTaskMessage] = useState<string | null>(null);
 
-  const [highlightReviewSection, setHighlightReviewSection] = useState(false);
-
-
-  const [currentUser, setCurrentUser] =
-    useState<CurrentUser | null>(null);
+  const currentUser = useCurrentUser();
   const {
     thinkTanks,
     sources,
@@ -155,6 +145,14 @@ function ReportsPageContent() {
     loadingProgress,
     progressError
   );
+  const {
+    reviewSectionRef,
+    highlightReviewSection,
+    openReviewDetails,
+  } = useReviewFocus({
+    selected,
+    searchParams,
+  });
 
   const {
     exportingReport,
@@ -185,47 +183,14 @@ function ReportsPageContent() {
     setTaskMessage,
     loadReviewEvents,
   });
-  const isReportListBusy =
-    submittingAIReportId !== null ||
-    submittingBatchReview ||
-    exportingBatchFormat !== null;
-  const reportListBusyMessage = submittingAIReportId !== null
-    ? 'AI 任务提交中，暂不可切换筛选。'
-    : submittingBatchReview
-      ? '批量复核处理中，暂不可切换筛选。'
-      : exportingBatchFormat !== null
-        ? '批量导出中，暂不可切换筛选。'
-        : '';
-
-  // 页面挂载后读取 sessionStorage 中的用户
-  useEffect(() => {
-    const user = getCurrentUser();
-    setCurrentUser(user);
-  }, []);
-
-  useEffect(() => {
-    if (!selected || searchParams.get('focus') !== 'review') {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      reviewSectionRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-      setHighlightReviewSection(true);
-    }, 120);
-
-    const clearTimer = window.setTimeout(() => {
-      setHighlightReviewSection(false);
-    }, 2600);
-
-    return () => {
-      window.clearTimeout(timer);
-      window.clearTimeout(clearTimer);
-    };
-  }, [selected, searchParams]);
-
+  const {
+    isReportListBusy,
+    reportListBusyMessage,
+  } = getReportListBusyState({
+    submittingAIReportId,
+    submittingBatchReview,
+    exportingBatchFormat,
+  });
   const totalPages = Math.max(1, Math.ceil(totalReports / PAGE_SIZE));
 
   return (
@@ -254,142 +219,105 @@ function ReportsPageContent() {
       {listError && <p className="message-error">{listError}</p>}
 
       <div className="split-layout">
-        <section className="panel report-list-panel">
-          <div className="report-list-controls">
-            <ReportFilterBar
-              searchDraft={searchDraft}
-              keywordFilter={keywordFilter}
-              loading={loadingList || isReportListBusy}
-              busyMessage={reportListBusyMessage}
-              totalReports={totalReports}
-              page={page}
-              totalPages={totalPages}
-              reviewStatusFilter={reviewStatusFilter}
-              aiStatusFilter={aiStatusFilter}
-              contentKindFilter={contentKindFilter}
-              deliverableStatusFilter={deliverableStatusFilter}
-              thinkTankFilter={thinkTankFilter}
-              sourceFilter={sourceFilter}
-              thinkTanks={thinkTanks}
-              sourceOptions={sourceOptions}
-              onSearchDraftChange={setSearchDraft}
-              onSearchSubmit={handleSearchSubmit}
-              onSearchClear={handleSearchClear}
-              onResetFilters={handleResetFilters}
-              onReviewStatusChange={handleReviewStatusFilterChange}
-              onAIStatusChange={handleAIStatusFilterChange}
-              onContentKindChange={handleContentKindFilterChange}
-              onDeliverableStatusChange={
-                handleDeliverableStatusFilterChange
-              }
-              onThinkTankChange={handleThinkTankFilterChange}
-              onSourceChange={handleSourceFilterChange}
-              onWorkflowShortcut={handleWorkflowShortcut}
-              onPreviousPage={() =>
-                setPage((current) => Math.max(1, current - 1))
-              }
-              onNextPage={() =>
-                setPage((current) => Math.min(totalPages, current + 1))
-              }
-            />
+        <ReportListPanel
+          reports={reports}
+          sourcesById={sourceById}
+          thinkTanksById={thinkTankById}
+          selectedReportIds={selectedReportIds}
+          activeReportId={selected?.id ?? null}
+          canRetryAI={canRetryAI}
+          loadingList={loadingList}
+          isReportListBusy={isReportListBusy}
+          reportListBusyMessage={reportListBusyMessage}
+          submittingAIReportId={submittingAIReportId}
+          searchDraft={searchDraft}
+          keywordFilter={keywordFilter}
+          totalReports={totalReports}
+          page={page}
+          totalPages={totalPages}
+          reviewStatusFilter={reviewStatusFilter}
+          aiStatusFilter={aiStatusFilter}
+          contentKindFilter={contentKindFilter}
+          deliverableStatusFilter={deliverableStatusFilter}
+          thinkTankFilter={thinkTankFilter}
+          sourceFilter={sourceFilter}
+          thinkTanks={thinkTanks}
+          sourceOptions={sourceOptions}
+          visibleSelectedReportCount={visibleSelectedReportCount}
+          allVisibleSelected={allVisibleSelected}
+          batchReviewStatus={batchReviewStatus}
+          submittingBatchReview={submittingBatchReview}
+          exportingBatchFormat={exportingBatchFormat}
+          onSearchDraftChange={setSearchDraft}
+          onSearchSubmit={handleSearchSubmit}
+          onSearchClear={handleSearchClear}
+          onResetFilters={handleResetFilters}
+          onReviewStatusChange={handleReviewStatusFilterChange}
+          onAIStatusChange={handleAIStatusFilterChange}
+          onContentKindChange={handleContentKindFilterChange}
+          onDeliverableStatusChange={handleDeliverableStatusFilterChange}
+          onThinkTankChange={handleThinkTankFilterChange}
+          onSourceChange={handleSourceFilterChange}
+          onWorkflowShortcut={handleWorkflowShortcut}
+          onPreviousPage={() =>
+            setPage((current) => Math.max(1, current - 1))
+          }
+          onNextPage={() =>
+            setPage((current) => Math.min(totalPages, current + 1))
+          }
+          onToggleAllVisible={toggleAllVisibleReports}
+          onClearSelection={clearReportSelection}
+          onBatchReviewStatusChange={setBatchReviewStatus}
+          onApplyBatchReview={handleBatchReviewStatusChange}
+          onBatchExport={handleBatchExport}
+          onSelectReport={handleSelect}
+          onToggleReportSelection={toggleReportSelection}
+          onRetryAI={submitRetryAI}
+        />
 
-            {canRetryAI && (
-              <ReportBatchActions
-                visibleReportCount={reports.length}
-                selectedReportCount={selectedReportIds.size}
-                visibleSelectedReportCount={visibleSelectedReportCount}
-                allVisibleSelected={allVisibleSelected}
-                loadingList={loadingList}
-                busy={isReportListBusy}
-                batchReviewStatus={batchReviewStatus}
-                submittingBatchReview={submittingBatchReview}
-                exportingBatchFormat={exportingBatchFormat}
-                onToggleAllVisible={toggleAllVisibleReports}
-                onClearSelection={clearReportSelection}
-                onBatchReviewStatusChange={setBatchReviewStatus}
-                onApplyBatchReview={handleBatchReviewStatusChange}
-                onBatchExport={handleBatchExport}
-              />
-            )}
-          </div>
-
-          <ReportList
-            reports={reports}
-            sourcesById={sourceById}
-            thinkTanksById={thinkTankById}
-            selectedReportIds={selectedReportIds}
-            activeReportId={selected?.id ?? null}
-            canRetryAI={canRetryAI}
-            selectionDisabled={isReportListBusy}
-            submittingAIReportId={submittingAIReportId}
-            onSelectReport={handleSelect}
-            onToggleReportSelection={toggleReportSelection}
-            onRetryAI={submitRetryAI}
-            onResetFilters={handleResetFilters}
-          />
-        </section>
-
-        <section className="panel report-detail-panel">
-          {loadingDetail && <p>正在加载报告详情……</p>}
-          {detailError && (
-            <p className="message-error">{detailError}</p>
-          )}
-          {taskMessage && (
-            <p className="message-success">{taskMessage}</p>
-          )}
-
-          {selected && selectedDocumentType && !loadingDetail && (
-            <ReportDetailArticle
-              report={selected}
-              documentType={selectedDocumentType}
-              source={selectedSource ?? null}
-              thinkTank={selectedThinkTank ?? null}
-              activeView={activeView}
-              copyingTarget={copyingTarget}
-              exportingReport={exportingReport}
-              exportingDocx={exportingDocx}
-              canFetchContent={canFetchContent}
-              canRetryAI={canRetryAI}
-              submittingFetch={submittingFetch}
-              submittingAIReportId={submittingAIReportId}
-              aiActionLabel={aiActionLabel}
-              updatingReview={updatingReview}
-              reviewNoteDraft={reviewNoteDraft}
-              highlightReviewSection={highlightReviewSection}
-              reviewSectionRef={reviewSectionRef}
-              adminDetailsSummary={adminDetailsSummary}
-              reviewHistorySummary={reviewHistorySummary}
-              aiProgressSummary={aiProgressSummary}
-              loadingReviewEvents={loadingReviewEvents}
-              reviewEventsError={reviewEventsError}
-              reviewEvents={reviewEvents}
-              loadingProgress={loadingProgress}
-              progressError={progressError}
-              aiProgress={aiProgress}
-              openReviewDetails={searchParams.get('focus') === 'review'}
-              onViewSelect={setActiveView}
-              onCopyCommentary={() => handleCopyReportText('commentary')}
-              onCopyTranslation={() => handleCopyReportText('translation')}
-              onCopyCurrent={() => handleCopyReportText('current')}
-              onExportMarkdown={handleExportReport}
-              onExportDocx={handleExportDocx}
-              onReviewStatusChange={handleReviewStatusChange}
-              onReviewNoteChange={setReviewNoteDraft}
-              onReviewNoteSave={handleReviewNoteSave}
-              onFetchContent={handleFetchContent}
-              onRetryAI={handleRetryAI}
-            />
-          )}
-
-          {!selected && !loadingDetail && !detailError && (
-            <div className="empty-state empty-state-large">
-              <strong>请选择一篇报告</strong>
-              <p>
-                从左侧列表选择报告后，这里会显示全文翻译、主要观点和深层研判。
-              </p>
-            </div>
-          )}
-        </section>
+        <ReportDetailPanel
+          selected={selected}
+          selectedDocumentType={selectedDocumentType}
+          selectedSource={selectedSource ?? null}
+          selectedThinkTank={selectedThinkTank ?? null}
+          loadingDetail={loadingDetail}
+          detailError={detailError}
+          taskMessage={taskMessage}
+          activeView={activeView}
+          copyingTarget={copyingTarget}
+          exportingReport={exportingReport}
+          exportingDocx={exportingDocx}
+          canFetchContent={canFetchContent}
+          canRetryAI={canRetryAI}
+          submittingFetch={submittingFetch}
+          submittingAIReportId={submittingAIReportId}
+          aiActionLabel={aiActionLabel}
+          updatingReview={updatingReview}
+          reviewNoteDraft={reviewNoteDraft}
+          highlightReviewSection={highlightReviewSection}
+          reviewSectionRef={reviewSectionRef}
+          adminDetailsSummary={adminDetailsSummary}
+          reviewHistorySummary={reviewHistorySummary}
+          aiProgressSummary={aiProgressSummary}
+          loadingReviewEvents={loadingReviewEvents}
+          reviewEventsError={reviewEventsError}
+          reviewEvents={reviewEvents}
+          loadingProgress={loadingProgress}
+          progressError={progressError}
+          aiProgress={aiProgress}
+          openReviewDetails={openReviewDetails}
+          onViewSelect={setActiveView}
+          onCopyCommentary={() => handleCopyReportText('commentary')}
+          onCopyTranslation={() => handleCopyReportText('translation')}
+          onCopyCurrent={() => handleCopyReportText('current')}
+          onExportMarkdown={handleExportReport}
+          onExportDocx={handleExportDocx}
+          onReviewStatusChange={handleReviewStatusChange}
+          onReviewNoteChange={setReviewNoteDraft}
+          onReviewNoteSave={handleReviewNoteSave}
+          onFetchContent={handleFetchContent}
+          onRetryAI={handleRetryAI}
+        />
       </div>
     </AppShell>
   );
