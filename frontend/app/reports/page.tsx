@@ -42,14 +42,12 @@ import {
 import { useReportActions } from './use-report-actions';
 import { useReportDetail } from './use-report-detail';
 import { useReportFilters } from './use-report-filters';
+import { useReportSelection } from './use-report-selection';
 
 function ReportsPageContent() {
   const searchParams = useSearchParams();
   const reviewSectionRef = useRef<HTMLDivElement | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
-  const [selectedReportIds, setSelectedReportIds] = useState<Set<number>>(
-    () => new Set()
-  );
   const [thinkTanks, setThinkTanks] = useState<ThinkTank[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [totalReports, setTotalReports] = useState(0);
@@ -63,6 +61,15 @@ function ReportsPageContent() {
 
   const [currentUser, setCurrentUser] =
     useState<CurrentUser | null>(null);
+  const {
+    selectedReportIds,
+    setSelectedReportIds,
+    visibleSelectedReportCount,
+    allVisibleSelected,
+    toggleReportSelection,
+    toggleAllVisibleReports,
+    clearReportSelection,
+  } = useReportSelection(reports);
   const {
     selected,
     setSelected,
@@ -129,13 +136,6 @@ function ReportsPageContent() {
     () => new Map(thinkTanks.map((thinkTank) => [thinkTank.id, thinkTank])),
     [thinkTanks]
   );
-  const visibleReportIds = reports.map((report) => report.id);
-  const visibleSelectedReportCount = visibleReportIds.filter((reportId) =>
-    selectedReportIds.has(reportId)
-  ).length;
-  const allVisibleSelected =
-    visibleReportIds.length > 0 &&
-    visibleSelectedReportCount === visibleReportIds.length;
   const reviewHistorySummary = getReviewHistorySummary(
     reviewEvents,
     loadingReviewEvents,
@@ -272,6 +272,7 @@ function ReportsPageContent() {
     sourceFilter,
     searchParams,
     handleSelect,
+    setSelectedReportIds,
   ]);
 
   const totalPages = Math.max(1, Math.ceil(totalReports / PAGE_SIZE));
@@ -293,34 +294,6 @@ function ReportsPageContent() {
     selected?.ai_status === 'skipped'
       ? '进入 AI 处理'
       : '重试 AI 处理';
-
-  function toggleReportSelection(reportId: number) {
-    setSelectedReportIds((current) => {
-      const next = new Set(current);
-      if (next.has(reportId)) {
-        next.delete(reportId);
-      } else {
-        next.add(reportId);
-      }
-      return next;
-    });
-  }
-
-  function toggleAllVisibleReports() {
-    setSelectedReportIds((current) => {
-      const next = new Set(current);
-      if (allVisibleSelected) {
-        visibleReportIds.forEach((reportId) => next.delete(reportId));
-      } else {
-        visibleReportIds.forEach((reportId) => next.add(reportId));
-      }
-      return next;
-    });
-  }
-
-  function clearReportSelection() {
-    setSelectedReportIds(new Set());
-  }
 
   return (
     <AppShell>
