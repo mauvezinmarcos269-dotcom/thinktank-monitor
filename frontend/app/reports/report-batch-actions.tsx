@@ -14,6 +14,10 @@ import {
   reviewStatusOptions,
 } from './report-page-utils';
 import { type ReportBatchExportFormat } from '@/lib/report';
+import {
+  getBatchActionLabels,
+  getBatchReviewTargetClass,
+} from './report-batch-actions-utils';
 
 type ReportBatchActionsProps = {
   visibleReportCount: number;
@@ -32,22 +36,6 @@ type ReportBatchActionsProps = {
   onBatchExport: (format: ReportBatchExportFormat) => void;
 };
 
-function getBatchReviewTargetClass(status: ReportReviewStatus | ''): string {
-  if (status === 'approved') {
-    return 'batch-review-target-success';
-  }
-
-  if (status === 'needs_rerun') {
-    return 'batch-review-target-warning';
-  }
-
-  if (status === 'rejected') {
-    return 'batch-review-target-danger';
-  }
-
-  return '';
-}
-
 export function ReportBatchActions({
   visibleReportCount,
   selectedReportCount,
@@ -65,65 +53,26 @@ export function ReportBatchActions({
   onBatchExport,
 }: ReportBatchActionsProps) {
   const selectAllRef = useRef<HTMLInputElement | null>(null);
-  const isWaitingForOtherTask =
-    busy && !submittingBatchReview && exportingBatchFormat === null;
-  const hasPartialSelection =
-    visibleSelectedReportCount > 0 &&
-    visibleSelectedReportCount < visibleReportCount &&
-    !allVisibleSelected;
-  const otherPageSelectedCount =
-    selectedReportCount - visibleSelectedReportCount;
-  const clearSelectionLabel =
-    otherPageSelectedCount > 0 ? '清空全部选择' : '清空选择';
-  const selectAllLabel = allVisibleSelected
-    ? `已全选本页 ${visibleReportCount} 篇报告，点击取消本页选择`
-    : hasPartialSelection
-      ? `本页已选 ${visibleSelectedReportCount} / ${visibleReportCount} 篇报告，点击全选本页`
-      : `本页未选择报告，点击全选本页 ${visibleReportCount} 篇报告`;
-  const busyLabel = submittingBatchReview
-    ? '批量复核处理中'
-    : exportingBatchFormat === 'markdown'
-      ? 'Markdown 导出中'
-      : exportingBatchFormat === 'docx'
-        ? 'Word 导出中'
-        : isWaitingForOtherTask
-          ? '其他任务处理中'
-          : '';
-  const applyButtonLabel = submittingBatchReview
-    ? '处理中……'
-    : exportingBatchFormat !== null || isWaitingForOtherTask
-      ? '等待中'
-      : batchReviewStatus && selectedReportCount > 0
-        ? `应用（${selectedReportCount}）`
-      : '应用';
-  const batchReviewTargetLabel =
-    batchReviewStatus && selectedReportCount > 0
-      ? `将 ${selectedReportCount} 篇标记为：${
-          reportReviewStatusLabels[batchReviewStatus]
-        }`
-      : batchReviewStatus
-        ? `将标记为：${reportReviewStatusLabels[batchReviewStatus]}`
-        : '';
-  const markdownExportLabel =
-    exportingBatchFormat === 'markdown'
-      ? '导出中……'
-      : submittingBatchReview ||
-          exportingBatchFormat === 'docx' ||
-          isWaitingForOtherTask
-        ? '等待中'
-        : selectedReportCount > 0
-          ? `导出 Markdown（${selectedReportCount}）`
-          : '导出 Markdown';
-  const docxExportLabel =
-    exportingBatchFormat === 'docx'
-      ? '导出中……'
-      : submittingBatchReview ||
-          exportingBatchFormat === 'markdown' ||
-          isWaitingForOtherTask
-        ? '等待中'
-        : selectedReportCount > 0
-          ? `导出 Word（${selectedReportCount}）`
-          : '导出 Word';
+  const {
+    hasPartialSelection,
+    otherPageSelectedCount,
+    selectAllLabel,
+    clearSelectionLabel,
+    busyLabel,
+    applyButtonLabel,
+    batchReviewTargetLabel,
+    markdownExportLabel,
+    docxExportLabel,
+  } = getBatchActionLabels({
+    busy,
+    batchReviewStatus,
+    selectedReportCount,
+    visibleReportCount,
+    visibleSelectedReportCount,
+    allVisibleSelected,
+    submittingBatchReview,
+    exportingBatchFormat,
+  });
 
   useEffect(() => {
     if (selectAllRef.current) {
