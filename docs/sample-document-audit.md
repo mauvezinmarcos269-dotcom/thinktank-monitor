@@ -2,6 +2,10 @@
 
 更新时间：2026-09-12
 
+> 历史记录说明：本文保留 2026-09-12 的只读审计结果。当前自动入库准入状态以
+> [source-rollout-status.md](source-rollout-status.md) 为准；Heritage 后续已调整为
+> `blocked`，不得再作为 `pilot_crawl_sources` 的默认入库试运行来源。
+
 本文档记录只读小样本复核结果。复核脚本只执行候选发现、PDF/长文获取和
 20 页门槛检查，不写数据库、不发通知、不调用 LLM。
 
@@ -52,8 +56,8 @@ poetry run python -m app.scripts.audit_source_documents \
 
 ## 后续处理建议
 
-1. 优先把 CFR、Heritage 作为第一批入库抓取试点来源，因为已验证能产出合格 PDF。
-2. Heritage 需要单独处理 403：判断是站点防护、请求头不足，还是这些报告页面已限制访问。
+1. CFR 可作为第一批入库抓取试点来源，因为已验证能产出合格 PDF。
+2. Heritage 虽可产出个别合格 PDF，但后续确认入口稳定性不足，当前应保持 `blocked`，先处理 403 和稳定入口问题。
 3. AEI 应继续保留在候选发现中，但真实入库前要接受较高跳过率；当前已确认网页长文可正式入库，可按长文 HTML 口径继续复核。
 
 ## 入库前质量策略
@@ -63,8 +67,8 @@ poetry run python -m app.scripts.audit_source_documents \
 | 来源 | 策略 | 文档口径 | 是否可进入第一批试运行 | 说明 |
 | --- | --- | --- | --- | --- |
 | CFR | `pilot_crawl` | `pdf_20_page_required` | 是 | 小样本已验证合格 PDF，可先小批量入库观察 |
-| Heritage | `pilot_crawl` | `pdf_20_page_required` | 是 | 可产出高质量 PDF，但要继续记录 403 跳过样本 |
-| AEI | `discovery_only` | `web_article_allowed` | 否 | 候选多但 PDF/页数门槛失败率高，已允许足够长、报告型网页正文作为正式报告入库 |
+| Heritage | `blocked` | `source_access_blocked` | 否 | 可产出个别高质量 PDF，但普通入口不稳定，需先解决 403 和稳定入口 |
+| AEI | `pilot_crawl` | `web_article_allowed` | 是 | 已完成网页长文样本复核，可小批量试运行，但每次最多新增 1 篇并人工复核 |
 | Cato | `blocked` | `source_access_blocked` | 否 | 普通 HTTP 当前被站点防护拦截，需先解决入口可达性 |
 
 默认策略：未完成真实小样本文档复核的来源为 `standard_review`，不得直接进入批量入库抓取。
@@ -75,7 +79,7 @@ poetry run python -m app.scripts.audit_source_documents \
 
 ```bash
 poetry run python -m app.scripts.pilot_crawl_sources \
-  --keys cfr,heritage \
+  --keys brookings,cfr,piie \
   --max-saved 1 \
   --max-candidates 3 \
   --ai-status skipped
@@ -93,4 +97,4 @@ poetry run python -m app.scripts.pilot_crawl_sources \
 | 来源 | Crawl Run ID | 检查候选 | 新增入库 | 结果说明 |
 | --- | ---: | ---: | ---: | --- |
 | CFR | 268 | 3 | 0 | 前 3 个候选均已存在，未新增 |
-| Heritage | 269 | 3 | 1 | 成功新增 1 篇，未触发通知，AI 暂不排队 |
+| Heritage | 269 | 3 | 1 | 历史结果；当前 Heritage 已改为 `blocked`，不再建议进入入库试运行 |

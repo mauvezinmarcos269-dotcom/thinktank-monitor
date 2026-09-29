@@ -2,6 +2,9 @@
 
 本文档记录 ThinkTank Monitor 的日常开发约定，方便后续继续扩展抓取、通知、AI 处理和前端管理闭环。
 
+部署、定时任务、提醒渠道和备份策略见
+[deployment-maintenance.md](deployment-maintenance.md)。
+
 ## 分支与提交
 
 - 当前主开发分支为 `feature/frontend`。
@@ -55,6 +58,9 @@ powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 p
 
 包装脚本默认使用本地隔离队列 `thinktank-local-codex`；如果确认要投递给
 当前 Docker worker 消费的 `celery` 队列，再显式传入 `-Queue celery`。
+小批量真实入库试运行只应使用 `source-rollout-status.md` 中已放行的
+`pilot_crawl` 来源；默认 keys 保持在已验证的 Brookings、CFR、PIIE，
+不要把 `blocked` 或尚未完成复核的来源直接放入默认命令。
 
 ## 抓取与候选报告
 

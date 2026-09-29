@@ -28,11 +28,17 @@ export function ReportContentViewer({
   const activeTextCount = countTextChars(activeText);
   const activeViewConfig = reportViews.find((view) => view.key === activeView);
   const guidance: Record<ReportView, string> = {
-    content: '原文正文用于核对 AI 成果，篇幅较长时可优先阅读主要观点和深层研判。',
-    translation: '全文翻译保留原报告主要内容，适合需要细读原文逻辑时使用。',
-    summary: '主要观点适合快速把握报告核心判断、事实依据和政策建议。',
-    commentary: '深层研判用于理解报告背后的战略意图、政策含义和潜在影响。',
+    summary: '第一部分交付稿，重点核对报告核心判断、事实依据和政策建议是否完整。',
+    commentary: '第二部分交付稿，重点核对深层现象、战略意图和现实影响是否分析到位。',
+    translation: '全文翻译用于逐段核对原文逻辑，也可作为后续归档材料。',
+    content: '原文正文用于追溯来源和核对 AI 成果，通常放在最后查看。',
   };
+  const readingOrder: ReportView[] = [
+    'summary',
+    'commentary',
+    'translation',
+    'content',
+  ];
   const getViewCount = (view: ReportView) => countTextChars(report[view]);
   const getViewStatus = (view: ReportView) => {
     const count = getViewCount(view);
@@ -67,7 +73,14 @@ export function ReportContentViewer({
       </div>
 
       <div className="tabbar" role="tablist" aria-label="报告内容视图">
-        {reportViews.map((view) => (
+        {readingOrder.map((viewKey) => {
+          const view = reportViews.find((item) => item.key === viewKey);
+
+          if (!view) {
+            return null;
+          }
+
+          return (
           <button
             key={view.key}
             type="button"
@@ -79,7 +92,8 @@ export function ReportContentViewer({
             <span>{view.label}</span>
             <small>{getViewStatus(view.key)}</small>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {activeText ? (

@@ -67,7 +67,7 @@
 
 ### 2.1 来源优先级和入库准入需要分开看
 
-P0/P1 表示机构研究价值和开发优先级，不等于已经允许自动写入正式报告库。当前入库试运行口径以 `docs/source-rollout-status.md` 为准：`brookings`、`cfr`、`piie` 可进入 `pilot_crawl`；`aei` 保持 `discovery_only`；`cap`、`cato`、`heritage` 暂为 `blocked`；其他来源默认 `standard_review`。
+P0/P1 表示机构研究价值和开发优先级，不等于已经允许自动写入正式报告库。当前入库试运行口径以 `docs/source-rollout-status.md` 为准；本文是 2026-09-17 的历史基线，不再重复维护具体来源状态，避免与最新准入文档冲突。
 
 ### 3. 当前工作区改动较多
 

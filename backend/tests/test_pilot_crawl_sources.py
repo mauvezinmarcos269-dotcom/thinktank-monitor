@@ -1,6 +1,10 @@
 import pytest
 
-from app.scripts.pilot_crawl_sources import ensure_pilot_allowed, parse_keys
+from app.scripts.pilot_crawl_sources import (
+    DEFAULT_KEYS,
+    ensure_pilot_allowed,
+    parse_keys,
+)
 
 
 def test_parse_keys_normalizes_comma_separated_values() -> None:
@@ -20,6 +24,10 @@ def test_ensure_pilot_allowed_accepts_current_pilot_sources() -> None:
             "piie",
         ]
     )
+
+
+def test_default_keys_are_safe_for_pilot_crawl() -> None:
+    ensure_pilot_allowed(list(DEFAULT_KEYS))
 
 
 def test_ensure_pilot_allowed_rejects_sources_still_under_review() -> None:

@@ -74,6 +74,7 @@
 5. 老师重点名单提高接入优先级，但不跳过只读审计、小样本复核和人工验收。
 6. 调整任一来源 rollout 状态前，应先留下只读审计结果，并同步更新本文档、`source_rollout_policy.py` 和相关测试。
 7. 具体接入、试抓、复核、升级和停用步骤按 [source-onboarding-playbook.md](source-onboarding-playbook.md) 执行。
+8. `pilot_crawl_sources` 的默认来源只能包含已放行且样本稳定的 `pilot_crawl` 来源；不得包含 `blocked`、`discovery_only` 或尚未复核的 `standard_review` 来源。
 
 ## 2026-09-21 AEI 阶段收尾
 

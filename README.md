@@ -62,6 +62,11 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 
 更多开发约定见 [docs/development.md](docs/development.md)。
 来源分层和数据治理口径见 [docs/source-governance.md](docs/source-governance.md)。
+部署、定时任务、提醒和备份维护见
+[docs/deployment-maintenance.md](docs/deployment-maintenance.md)，其中包含老师本地电脑长期运行的推荐方案。
+老师日常使用说明见 [docs/teacher-local-user-guide.md](docs/teacher-local-user-guide.md)。
+老师本地电脑可优先使用 `scripts/teacher-local-start.ps1`、
+`scripts/teacher-local-stop.ps1` 和 `scripts/teacher-local-status.ps1` 管理服务。
 
 ## 本地联调
 

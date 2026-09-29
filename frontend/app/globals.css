@@ -159,6 +159,7 @@ th {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.35rem;
   border-radius: 6px;
   color: #334155;
   min-height: 2.25rem;
@@ -170,6 +171,20 @@ th {
   background: #e8f4f8;
   color: #0f5f75;
   font-weight: 700;
+}
+
+.nav-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  padding: 0.05rem 0.38rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .main-content {
@@ -190,6 +205,151 @@ th {
 .page-header p {
   margin: 0.35rem 0 0;
   color: #64748b;
+}
+
+/* Dashboard */
+
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #ffffff;
+  margin-bottom: 1rem;
+  padding: 1.15rem;
+}
+
+.dashboard-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bae6fd;
+  border-radius: 999px;
+  background: #f0f9ff;
+  color: #075985;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.dashboard-hero h2 {
+  margin: 0.6rem 0 0;
+  color: #0f172a;
+  font-size: 1.35rem;
+  line-height: 1.35;
+}
+
+.dashboard-hero p {
+  max-width: 760px;
+  margin: 0.45rem 0 0;
+  color: #475569;
+  line-height: 1.65;
+}
+
+.dashboard-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.35rem;
+  border-radius: 6px;
+  padding: 0.48rem 0.8rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.button-primary {
+  border: 1px solid #155e75;
+  background: #155e75;
+  color: #ffffff;
+}
+
+.button-primary:hover {
+  background: #0f5f75;
+  text-decoration: none;
+}
+
+.button-secondary {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #155e75;
+}
+
+.button-secondary:hover {
+  border-color: #155e75;
+  background: #eef8fb;
+  text-decoration: none;
+}
+
+.dashboard-workbench {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.workbench-card {
+  display: grid;
+  min-height: 9.25rem;
+  align-content: start;
+  gap: 0.45rem;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  padding: 0.95rem;
+}
+
+.workbench-card:hover {
+  border-color: #155e75;
+  background: #fbfdff;
+  text-decoration: none;
+}
+
+.workbench-card span {
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.workbench-card strong {
+  color: #0f172a;
+  font-size: 2rem;
+  line-height: 1.05;
+}
+
+.workbench-card small {
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.workbench-card-primary {
+  border-color: #67e8f9;
+  background: #ecfeff;
+}
+
+.workbench-card-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.workbench-card-danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.workbench-card-neutral {
+  background: #ffffff;
 }
 
 /* Shared Layout */
@@ -860,6 +1020,16 @@ th {
   line-height: 1.55;
 }
 
+.outcome-delivery-steps {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.15rem;
+  color: #475569;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 .outcome-summary-status,
 .outcome-primary-actions,
 .outcome-secondary-actions {
@@ -933,6 +1103,11 @@ th {
   font-weight: 700;
 }
 
+.outcome-summary-grid dt > span {
+  display: grid;
+  gap: 0.16rem;
+}
+
 .outcome-summary-grid dt small {
   border-radius: 999px;
   background: #e0f2fe;
@@ -942,9 +1117,22 @@ th {
   white-space: nowrap;
 }
 
+.outcome-summary-grid dt .outcome-card-role {
+  background: transparent;
+  color: #64748b;
+  padding: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
 .outcome-card-active dt small {
   background: #155e75;
   color: #ffffff;
+}
+
+.outcome-card-active dt .outcome-card-role {
+  background: transparent;
+  color: #0f5f75;
 }
 
 .outcome-card-empty dt small {
@@ -952,10 +1140,23 @@ th {
   color: #64748b;
 }
 
+.outcome-card-empty dt .outcome-card-role {
+  background: transparent;
+  color: #64748b;
+}
+
 .outcome-summary-grid dd {
   margin: 0.25rem 0 0;
   color: #0f172a;
   font-weight: 800;
+}
+
+.outcome-summary-grid dd small {
+  display: block;
+  margin-top: 0.16rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .outcome-summary-grid button {
@@ -1896,9 +2097,19 @@ th {
     justify-content: flex-start;
   }
 
+  .dashboard-hero-actions {
+    justify-content: flex-start;
+  }
+
+  .dashboard-hero-actions a {
+    flex: 1 1 8rem;
+  }
+
   .report-search-bar,
   .active-filter-summary,
   .section-heading,
+  .dashboard-hero,
+  .dashboard-workbench,
   .detail-heading,
   .content-heading,
   .reading-brief,

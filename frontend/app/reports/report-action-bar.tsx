@@ -68,8 +68,8 @@ export function ReportActionBar({
       {(canFetchContent || (canRetryAI && hasContentText)) && (
         <section className="action-group action-group-maintenance">
           <div>
-            <h4>维护操作</h4>
-            <p>用于重新抓取正文或重新生成 AI 成果。</p>
+            <h4>管理员维护</h4>
+            <p>正文缺失、AI 失败或老师要求重跑时，再使用这里的维护操作。</p>
           </div>
 
           <div className="action-row report-primary-actions">
@@ -98,8 +98,8 @@ export function ReportActionBar({
 
       <section className="action-group">
         <div>
-          <h4>备用成果操作</h4>
-          <p>主成果区已有快捷导出，这里保留同一报告的备用复制与导出入口。</p>
+          <h4>补充复制与导出</h4>
+          <p>主交付区已有快捷入口；这里保留同一报告的完整操作，方便二次处理。</p>
         </div>
 
         <div className="action-row">

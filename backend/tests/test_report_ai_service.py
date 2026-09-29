@@ -16,6 +16,27 @@ from app.services.ai.report_ai_service import (
 )
 
 
+def build_numbered_text(
+    *,
+    prefix: str,
+    repeats: int,
+    points: int = 4,
+) -> str:
+    numerals = [
+        "一",
+        "二",
+        "三",
+        "四",
+        "五",
+    ]
+
+    return "\n\n".join(
+        f"{numerals[index]}、{prefix}{index + 1}。"
+        + ("这是用于测试的充分展开内容。" * repeats)
+        for index in range(points)
+    )
+
+
 class FakeClient:
     def __init__(self, responses: list[str]):
         self.responses = responses
@@ -39,7 +60,7 @@ def test_summary_prompt_requires_numbered_points() -> None:
         "分析笔记。",
     )
 
-    assert "必须包含4个以上主要观点" in prompt
+    assert "必须包含4个及以上主要观点" in prompt
     assert "必须依次使用“一、”“二、”“三、”“四、”" in prompt
     assert "不要使用无编号的连续段落" in prompt
 
@@ -50,15 +71,16 @@ def test_commentary_prompt_requires_numbered_points() -> None:
         "分析笔记。",
     )
 
-    assert "必须包含5个以上分论点" in prompt
-    assert "必须依次使用“一、”“二、”“三、”“四、”“五、”" in prompt
+    assert "必须包含4个及以上分论点" in prompt
+    assert "建议写到5个" in prompt
+    assert "必须依次使用“一、”“二、”“三、”“四、”" in prompt
     assert "不要使用无编号的连续段落" in prompt
 
 
 @pytest.mark.asyncio
 async def test_summary_retry_prompt_includes_length_feedback() -> None:
-    short_summary = "短摘要。" * 100
-    valid_summary = "足够长的摘要。" * 220
+    short_summary = build_numbered_text(prefix="短观点", repeats=8)
+    valid_summary = build_numbered_text(prefix="合格观点", repeats=34)
     client = FakeClient(
         [
             json.dumps({"summary": short_summary}, ensure_ascii=False),
@@ -82,8 +104,33 @@ async def test_summary_retry_prompt_includes_length_feedback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_summary_retry_prompt_includes_numbered_point_feedback() -> None:
+    unnumbered_summary = "没有编号的主要观点。" * 170
+    valid_summary = build_numbered_text(prefix="合格观点", repeats=34)
+    client = FakeClient(
+        [
+            json.dumps({"summary": unnumbered_summary}, ensure_ascii=False),
+            json.dumps({"summary": valid_summary}, ensure_ascii=False),
+        ]
+    )
+
+    summary = await generate_summary_from_notes(
+        client,
+        "Sample title",
+        "分析笔记。" * 200,
+    )
+
+    assert summary == valid_summary
+    assert "summary 分论点不足" in client.prompts[1]
+    assert "必须显式使用“一、”“二、”“三、”“四、”" in client.prompts[1]
+
+
+@pytest.mark.asyncio
 async def test_summary_accepts_slightly_over_legacy_upper_bound() -> None:
-    legacy_over_limit_summary = "较长主要观点。" * 300
+    legacy_over_limit_summary = build_numbered_text(
+        prefix="较长主要观点",
+        repeats=36,
+    )
     client = FakeClient(
         [
             json.dumps(
@@ -105,7 +152,10 @@ async def test_summary_accepts_slightly_over_legacy_upper_bound() -> None:
 
 @pytest.mark.asyncio
 async def test_summary_still_rejects_clearly_over_new_upper_bound() -> None:
-    too_long_summary = "过长主要观点。" * 400
+    too_long_summary = build_numbered_text(
+        prefix="过长主要观点",
+        repeats=90,
+    )
     client = FakeClient(
         [
             json.dumps(
@@ -137,8 +187,8 @@ async def test_summary_still_rejects_clearly_over_new_upper_bound() -> None:
 
 @pytest.mark.asyncio
 async def test_commentary_retry_prompt_includes_length_feedback() -> None:
-    short_commentary = "短评论。" * 150
-    valid_commentary = "足够长的评论。" * 300
+    short_commentary = build_numbered_text(prefix="短研判", repeats=12)
+    valid_commentary = build_numbered_text(prefix="合格研判", repeats=42)
     client = FakeClient(
         [
             json.dumps({"commentary": short_commentary}, ensure_ascii=False),
@@ -163,10 +213,32 @@ async def test_commentary_retry_prompt_includes_length_feedback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_commentary_retry_prompt_includes_numbered_point_feedback() -> None:
+    unnumbered_commentary = "没有编号的深层研判。" * 210
+    valid_commentary = build_numbered_text(prefix="合格研判", repeats=42)
+    client = FakeClient(
+        [
+            json.dumps({"commentary": unnumbered_commentary}, ensure_ascii=False),
+            json.dumps({"commentary": valid_commentary}, ensure_ascii=False),
+        ]
+    )
+
+    commentary = await generate_commentary_from_notes(
+        client,
+        "Sample title",
+        "分析笔记。" * 200,
+    )
+
+    assert commentary == valid_commentary
+    assert "commentary 分论点不足" in client.prompts[1]
+    assert "至少必须写满四个编号分论点" in client.prompts[1]
+
+
+@pytest.mark.asyncio
 async def test_commentary_retry_prompt_handles_over_max_draft() -> None:
-    short_commentary = "短评论。" * 150
-    long_commentary = "过长评论。" * 700
-    valid_commentary = "合格评论。" * 430
+    short_commentary = build_numbered_text(prefix="短研判", repeats=12)
+    long_commentary = build_numbered_text(prefix="过长研判", repeats=140)
+    valid_commentary = build_numbered_text(prefix="合格研判", repeats=42)
     client = FakeClient(
         [
             json.dumps({"commentary": short_commentary}, ensure_ascii=False),
@@ -190,10 +262,13 @@ async def test_commentary_retry_prompt_handles_over_max_draft() -> None:
 
 @pytest.mark.asyncio
 async def test_commentary_allows_four_final_output_attempts() -> None:
-    short_commentary = "短评论。" * 150
-    long_commentary = "过长评论。" * 700
-    still_long_commentary = "仍然过长。" * 560
-    valid_commentary = "合格评论。" * 430
+    short_commentary = build_numbered_text(prefix="短研判", repeats=12)
+    long_commentary = build_numbered_text(prefix="过长研判", repeats=140)
+    still_long_commentary = build_numbered_text(
+        prefix="仍然过长",
+        repeats=115,
+    )
+    valid_commentary = build_numbered_text(prefix="合格研判", repeats=42)
     client = FakeClient(
         [
             json.dumps({"commentary": short_commentary}, ensure_ascii=False),

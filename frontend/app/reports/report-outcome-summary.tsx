@@ -11,6 +11,8 @@ import {
 
 type OutcomeItem = {
   label: string;
+  role: string;
+  target: string;
   count: number;
   view: ReportView;
 };
@@ -77,16 +79,22 @@ export function ReportOutcomeSummary({
   const outcomes: OutcomeItem[] = [
     {
       label: '主要观点',
+      role: '第一部分',
+      target: '1500-2000 字',
       count: countTextChars(report.summary),
       view: 'summary',
     },
     {
       label: '深层研判',
+      role: '第二部分',
+      target: '2000-2500 字',
       count: countTextChars(report.commentary),
       view: 'commentary',
     },
     {
       label: '全文翻译',
+      role: '译文材料',
+      target: '核对原文逻辑',
       count: countTextChars(report.translation),
       view: 'translation',
     },
@@ -105,8 +113,17 @@ export function ReportOutcomeSummary({
           <span className={workflow.className}>{workflow.label}</span>
           <span className="badge badge-info">成果 {completedCount}/3</span>
         </div>
-        <h3>AI 成果工作台</h3>
-        <p>{workflow.hint}</p>
+        <h3>交付材料</h3>
+        <p>
+          {workflow.hint}
+          {' '}
+          建议先核对评论稿两部分，再按需查看全文翻译。
+        </p>
+        <ol className="outcome-delivery-steps">
+          <li>主要观点：概括报告核心判断和政策建议。</li>
+          <li>深层研判：分析报告背后的战略意图和现实影响。</li>
+          <li>全文翻译：用于逐段核对和归档。</li>
+        </ol>
         <div className="outcome-primary-actions">
           {recommendedView ? (
             <button
@@ -114,7 +131,7 @@ export function ReportOutcomeSummary({
               onClick={() => onViewSelect(recommendedView)}
               disabled={activeView === recommendedView}
             >
-              {activeView === recommendedView ? '正在阅读推荐内容' : '阅读推荐内容'}
+              {activeView === recommendedView ? '正在阅读推荐材料' : '阅读推荐材料'}
             </button>
           ) : null}
           <button
@@ -153,10 +170,16 @@ export function ReportOutcomeSummary({
         {outcomes.map((item) => (
           <div key={item.label} className={getOutcomeCardClass(item, activeView)}>
             <dt>
-              <span>{item.label}</span>
+              <span>
+                <small className="outcome-card-role">{item.role}</small>
+                {item.label}
+              </span>
               <small>{getOutcomeBadge(item, activeView)}</small>
             </dt>
-            <dd>{getOutcomeStatus(item)}</dd>
+            <dd>
+              {getOutcomeStatus(item)}
+              <small>{item.target}</small>
+            </dd>
             <button
               type="button"
               onClick={() => onViewSelect(item.view)}

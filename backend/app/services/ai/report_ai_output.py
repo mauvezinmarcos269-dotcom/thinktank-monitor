@@ -12,6 +12,10 @@ MAX_TRANSLATION_LENGTH_FLOOR = 5000
 
 logger = logging.getLogger(__name__)
 
+CHINESE_NUMBERED_POINT_PATTERN = re.compile(
+    r"(?:^|\n)\s*[一二三四五六七八九十]+[、.．]",
+)
+
 
 def validate_length(
     text: str,
@@ -43,6 +47,28 @@ def validate_length_range(
             f"{field} 长度超出: "
             f"期望不超过 {max_chars} 字符，"
             f"实际为 {len(text)} 字符"
+        )
+
+
+def count_chinese_numbered_points(text: str) -> int:
+    return len(
+        CHINESE_NUMBERED_POINT_PATTERN.findall(text)
+    )
+
+
+def validate_numbered_points(
+    text: str,
+    *,
+    min_points: int,
+    field: str,
+) -> None:
+    point_count = count_chinese_numbered_points(text)
+
+    if point_count < min_points:
+        raise ValueError(
+            f"{field} 分论点不足: "
+            f"期望至少 {min_points} 个中文编号分论点，"
+            f"实际识别到 {point_count} 个"
         )
 
 

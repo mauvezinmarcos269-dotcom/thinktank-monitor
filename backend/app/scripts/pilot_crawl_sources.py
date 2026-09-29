@@ -34,8 +34,9 @@ from app.services.source_rollout_policy import (
 )
 
 DEFAULT_KEYS = (
+    "brookings",
     "cfr",
-    "heritage",
+    "piie",
 )
 
 
@@ -336,7 +337,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--keys",
         default=",".join(DEFAULT_KEYS),
-        help="逗号分隔的机构 key，默认 cfr,heritage。",
+        help="逗号分隔的机构 key，默认 brookings,cfr,piie。",
     )
     parser.add_argument(
         "--max-saved",

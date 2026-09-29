@@ -115,8 +115,10 @@ export function AppShell({ children }: AppShellProps) {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <Link href="/dashboard" className="brand-title">ThinkTank Monitor</Link>
-          <span className="brand-subtitle">全球智库涉华研究监测平台</span>
+          <Link href="/dashboard" className="brand-title">
+            ThinkTank Monitor
+          </Link>
+          <span className="brand-subtitle">全球智库涉华报告编译平台</span>
         </div>
 
         <nav className="top-nav" aria-label="主导航">
@@ -127,10 +129,10 @@ export function AppShell({ children }: AppShellProps) {
               className="nav-link"
               aria-current={pathname === item.href ? 'page' : undefined}
             >
-              {item.label}
-              {item.href === '/notifications' && unreadCount > 0
-                ? ` (${unreadCount})`
-                : ''}
+              <span>{item.label}</span>
+              {item.href === '/notifications' && unreadCount > 0 ? (
+                <span className="nav-count">{unreadCount}</span>
+              ) : null}
             </Link>
           ))}
         </nav>

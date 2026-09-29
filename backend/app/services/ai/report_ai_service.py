@@ -19,6 +19,7 @@ from app.services.ai.report_ai_output import (
     minimum_translation_length,
     validate_length,
     validate_length_range,
+    validate_numbered_points,
     validate_translation_completeness,
 )
 from app.services.ai.report_ai_prompts import (
@@ -411,6 +412,11 @@ async def generate_summary_from_notes(
                 SUMMARY_MAX_CHARS,
                 "summary",
             )
+            validate_numbered_points(
+                result["summary"],
+                min_points=4,
+                field="summary",
+            )
 
             logger.info(
                 "Full-report summary succeeded "
@@ -503,6 +509,11 @@ async def generate_commentary_from_notes(
                 COMMENTARY_MIN_CHARS,
                 COMMENTARY_MAX_CHARS,
                 "commentary",
+            )
+            validate_numbered_points(
+                result["commentary"],
+                min_points=4,
+                field="commentary",
             )
 
             logger.info(
