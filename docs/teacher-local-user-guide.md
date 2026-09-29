@@ -119,6 +119,8 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
 
 备份文件建议放到移动硬盘、学院网盘或加密云盘，不要只保存在同一台电脑上。
 
+恢复备份会覆盖当前数据库，日常使用者不要自行操作；需要恢复时请联系维护者。
+
 ## 七、更新平台版本
 
 如果维护者已经推送了新版本，可运行：

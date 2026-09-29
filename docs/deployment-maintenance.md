@@ -227,6 +227,15 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1 -SkipM
 
 恢复前必须先备份当前库，避免误覆盖。
 
+需要从备份恢复时，使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-restore.ps1 -BackupDir local-backups\YYYYMMDD-HHMMSS
+```
+
+恢复脚本会要求输入 `RESTORE` 二次确认，并默认先为当前状态再做一份安全备份。
+恢复 `.env` 文件需要额外加 `-RestoreEnv`；如果只恢复数据库、不恢复 MinIO，可加 `-SkipMinio`。
+
 MinIO 数据建议通过服务器快照或数据卷备份统一处理。若后续大量保存 PDF 原文，MinIO 备份优先级应提高。
 
 ## 八、上线前清单
