@@ -24,6 +24,12 @@ http://localhost:3000
 powershell -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
 ```
 
+如果页面异常、报告长时间不生成，或维护者要求检查服务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
+```
+
 ## 二、日常停止
 
 不使用平台时，可运行：
@@ -105,9 +111,25 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
 - 已导出的 Word/Markdown 成果
 - 重要配置文件
 
+可运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
+```
+
 备份文件建议放到移动硬盘、学院网盘或加密云盘，不要只保存在同一台电脑上。
 
-## 七、遇到问题时记录什么
+## 七、更新平台版本
+
+如果维护者已经推送了新版本，可运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
+```
+
+这个脚本会先备份当前数据，再拉取代码、重建服务、执行数据库迁移并做健康检查。
+
+## 八、遇到问题时记录什么
 
 请记录：
 

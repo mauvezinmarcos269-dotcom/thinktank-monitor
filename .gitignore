@@ -113,6 +113,7 @@ docs/backups/
 backend/docs/backups/
 docs/exports/
 backend/docs/exports/
+local-backups/
 
 # Secrets
 *.env

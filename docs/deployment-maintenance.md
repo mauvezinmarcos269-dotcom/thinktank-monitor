@@ -98,6 +98,20 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
 powershell -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
 ```
 
+建议健康检查：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
+```
+
+维护者推送新版本后，老师电脑可一键更新：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
+```
+
+这个脚本默认会先备份，再拉取代码、重建服务、执行数据库迁移并运行健康检查。若只想重建当前目录代码，不执行 `git pull`，可加 `-SkipPull`。
+
 建议查看后台日志：
 
 ```powershell
@@ -200,8 +214,15 @@ docker compose logs -f celery-beat
 
 PostgreSQL 备份示例：
 
-```bash
-docker compose exec postgres pg_dump -U thinktank -d thinktank_monitor > backups/thinktank-$(date +%Y%m%d).sql
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
+```
+
+备份默认保存到 `local-backups/`，该目录已加入 `.gitignore`，不会被提交到代码仓库。
+如果 MinIO 数据较大，可临时跳过 MinIO：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1 -SkipMinio
 ```
 
 恢复前必须先备份当前库，避免误覆盖。
