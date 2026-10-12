@@ -2,8 +2,11 @@
 
 import { Fragment, type ReactNode } from 'react';
 
+import { summarizeCrawlError } from '@/lib/crawl-error';
 import { type SourceCreateInput, type SourceHealth } from '@/lib/institution';
 import { crawlRunStatusLabels, priorityTierLabels, regionFocusLabels } from '@/lib/status';
+
+import { parseCrawlQualitySummary } from './settings-page-utils';
 
 type SourceHealthListProps = {
   sources: SourceHealth[];
@@ -19,6 +22,7 @@ type SourceHealthListProps = {
   rolloutStageBadgeClasses: Record<string, string>;
   documentPolicyLabels: Record<string, string>;
   crawlRunBadgeClasses: Record<string, string>;
+  focusedSourceId: number | null;
   onTriggerCrawl: (sourceId: number) => void;
   onToggleCandidates: (crawlRunId: number) => void;
   renderCandidateDetail: (crawlRunId: number) => ReactNode;
@@ -29,57 +33,11 @@ type SourceHealthListProps = {
   formatDuration: (value: number | null) => string;
 };
 
-type CrawlQualitySummary = {
-  metrics: { label: string; value: string }[];
-  skips: string[];
-};
-
-function parseCrawlQualitySummary(text: string | null): CrawlQualitySummary | null {
-  if (!text?.startsWith('质量检查：')) {
-    return null;
-  }
-
-  const body = text.replace(/^质量检查：/, '');
-  const parts = body
-    .split('；')
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const metrics: CrawlQualitySummary['metrics'] = [];
-  const skips: string[] = [];
-
-  parts.forEach((part) => {
-    if (part.startsWith('跳过：')) {
-      skips.push(
-        ...part
-          .replace(/^跳过：/, '')
-          .split('，')
-          .map((item) => item.trim())
-          .filter(Boolean)
-      );
-      return;
-    }
-
-    const metricMatch = part.match(/^(原始候选|有效去重后|入库)\s+(\d+)\s+条$/);
-    if (metricMatch) {
-      metrics.push({
-        label: metricMatch[1],
-        value: metricMatch[2],
-      });
-    }
-  });
-
-  if (metrics.length === 0 && skips.length === 0) {
-    return null;
-  }
-
-  return { metrics, skips };
-}
-
 function CrawlRunQualitySummary({ error }: { error: string | null }) {
   const summary = parseCrawlQualitySummary(error);
 
   if (!summary) {
-    return <span className="crawl-run-error">{error ?? '无'}</span>;
+    return <CrawlRunErrorDisclosure error={error} />;
   }
 
   return (
@@ -103,7 +61,28 @@ function CrawlRunQualitySummary({ error }: { error: string | null }) {
           ))}
         </div>
       ) : null}
-      <p className="crawl-run-error">{error}</p>
+      <CrawlRunErrorDisclosure error={error} />
+    </div>
+  );
+}
+
+function CrawlRunErrorDisclosure({ error }: { error: string | null }) {
+  const fullError = error?.trim() || '无';
+  const errorSummary = summarizeCrawlError(error);
+  const hasDetails = fullError !== errorSummary;
+
+  return (
+    <div className="crawl-run-error-block">
+      <p className="crawl-run-error">{errorSummary}</p>
+      {hasDetails ? (
+        <details className="crawl-run-error-details">
+          <summary>
+            <span className="crawl-run-error-open-label">展开详情</span>
+            <span className="crawl-run-error-close-label">收起详情</span>
+          </summary>
+          <div className="crawl-run-error-full">{fullError}</div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -122,6 +101,7 @@ export function SourceHealthList({
   rolloutStageBadgeClasses,
   documentPolicyLabels,
   crawlRunBadgeClasses,
+  focusedSourceId,
   onTriggerCrawl,
   onToggleCandidates,
   renderCandidateDetail,
@@ -138,11 +118,17 @@ export function SourceHealthList({
   return (
     <ul className="source-health-list">
       {sources.map((source) => {
+        const isDisabled = !source.is_active;
+        const isFocused = focusedSourceId === source.id;
         const sourceReviewReason = getSourceReviewReason(source);
         const latestRun = getLatestRun(source);
 
         return (
-          <li key={source.id} className="source-health-item">
+          <li
+            key={source.id}
+            id={`source-health-${source.id}`}
+            className={isFocused ? 'source-health-item source-health-item-focused' : 'source-health-item'}
+          >
             <div className="source-health-main">
               <div className="source-health-title">
                 <div>
@@ -158,12 +144,14 @@ export function SourceHealthList({
                 <span className="badge">{priorityTierLabels[source.think_tank_priority_tier]}</span>
                 <span className="badge">{regionFocusLabels[source.think_tank_region_focus]}</span>
                 <span className={rolloutStageBadgeClasses[source.rollout_stage] ?? 'badge'}>
-                  {rolloutStageLabels[source.rollout_stage] ?? source.rollout_stage}
+                  机构准入：{rolloutStageLabels[source.rollout_stage] ?? source.rollout_stage}
                 </span>
               </div>
-              <p>{source.health_reason}</p>
+              {!isDisabled ? <p>{source.health_reason}</p> : null}
 
-              {sourceReviewReason ? (
+              {isDisabled ? (
+                <p className="source-disabled">此来源已停用，后续自动抓取已暂停。历史记录保留。</p>
+              ) : sourceReviewReason ? (
                 <p className="source-attention">需处理：{sourceReviewReason}</p>
               ) : (
                 <p className="source-stable">当前无需人工处理，继续观察自动抓取结果。</p>
@@ -175,7 +163,7 @@ export function SourceHealthList({
                   onClick={() => onTriggerCrawl(source.id)}
                   disabled={
                     crawlingSourceId === source.id ||
-                    !source.is_active ||
+                    isDisabled ||
                     !crawlableSourceTypes.has(source.source_type as SourceCreateInput['source_type'])
                   }
                 >
@@ -225,17 +213,17 @@ export function SourceHealthList({
                 <dd>{source.report_count}</dd>
               </div>
               <div>
-                <dt>频率</dt>
+                <dt>{isDisabled ? '原抓取频率' : '频率'}</dt>
                 <dd>{source.crawl_frequency_minutes} 分钟</dd>
               </div>
               <div>
-                <dt>问题类型</dt>
+                <dt>{isDisabled ? '停用前问题' : '问题类型'}</dt>
                 <dd>
                   <span className="badge">{source.diagnosis_label}</span>
                 </dd>
               </div>
               <div>
-                <dt>试运行策略</dt>
+                <dt>机构准入</dt>
                 <dd>
                   <span className={rolloutStageBadgeClasses[source.rollout_stage] ?? 'badge'}>
                     {rolloutStageLabels[source.rollout_stage] ?? source.rollout_stage}
@@ -248,10 +236,19 @@ export function SourceHealthList({
               </div>
             </dl>
 
-            <p className="source-advice">{source.diagnosis_advice}</p>
-            <p className="source-advice">{source.rollout_advice}</p>
+            {!isDisabled ? (
+              <>
+                <p className="source-advice">{source.diagnosis_advice}</p>
+                <p className="source-advice">{source.rollout_advice}</p>
+              </>
+            ) : null}
 
-            {source.last_error ? <p className="source-error">{source.last_error}</p> : null}
+            {source.last_error ? (
+              <div className="source-error">
+                <strong>{isDisabled ? '停用前最近错误' : '最近错误'}</strong>
+                <CrawlRunErrorDisclosure error={source.last_error} />
+              </div>
+            ) : null}
 
             <div className="crawl-run-history">
               <h3>最近抓取记录</h3>
@@ -259,7 +256,7 @@ export function SourceHealthList({
                 <p className="muted">暂无抓取运行记录。</p>
               ) : (
                 <div className="table-wrap">
-                  <table>
+                  <table className="crawl-run-history-table">
                     <thead>
                       <tr>
                         <th>开始时间</th>
@@ -275,21 +272,21 @@ export function SourceHealthList({
                     <tbody>
                       {source.recent_crawl_runs.map((run) => (
                         <Fragment key={run.id}>
-                          <tr>
-                            <td>{formatDateTime(run.started_at)}</td>
-                            <td>
+                          <tr className="crawl-run-row">
+                            <td data-label="开始时间">{formatDateTime(run.started_at)}</td>
+                            <td data-label="状态">
                               <span className={crawlRunBadgeClasses[run.status] ?? 'badge'}>
                                 {crawlRunStatusLabels[run.status] ?? run.status}
                               </span>
                             </td>
-                            <td>{run.found_count}</td>
-                            <td>{run.saved_count}</td>
-                            <td>{getSaveRate(run)}%</td>
-                            <td>{formatDuration(run.duration_seconds)}</td>
-                            <td>
+                            <td data-label="发现">{run.found_count}</td>
+                            <td data-label="入库">{run.saved_count}</td>
+                            <td data-label="保存率">{getSaveRate(run)}%</td>
+                            <td data-label="耗时">{formatDuration(run.duration_seconds)}</td>
+                            <td className="crawl-run-quality-cell" data-label="质量/错误摘要">
                               <CrawlRunQualitySummary error={run.error} />
                             </td>
-                            <td>
+                            <td className="crawl-run-action-cell" data-label="候选">
                               <button
                                 type="button"
                                 onClick={() => onToggleCandidates(run.id)}
@@ -304,7 +301,7 @@ export function SourceHealthList({
                             </td>
                           </tr>
                           {expandedRunId === run.id ? (
-                            <tr>
+                            <tr className="crawl-run-detail-row">
                               <td colSpan={8}>
                                 <div className="candidate-detail">{renderCandidateDetail(run.id)}</div>
                               </td>

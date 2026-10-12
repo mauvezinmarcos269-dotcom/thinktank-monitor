@@ -11,11 +11,7 @@ type ReviewHistoryPanelProps = {
   events: ReportReviewEvent[];
 };
 
-export function ReviewHistoryPanel({
-  loading,
-  errorMessage,
-  events,
-}: ReviewHistoryPanelProps) {
+export function ReviewHistoryPanel({ loading, errorMessage, events }: ReviewHistoryPanelProps) {
   return (
     <section className="section-block">
       <h3>复核历史</h3>
@@ -25,15 +21,14 @@ export function ReviewHistoryPanel({
         <ol className="review-history">
           {events.map((event) => (
             <li key={event.id}>
-              <strong>
-                {reportReviewStatusLabels[event.review_status] ??
-                  event.review_status}
-              </strong>
-              <span>
-                {formatDateTime(event.created_at)} /{' '}
-                {event.reviewer_email ?? '未知操作人'}
-              </span>
-              <p>{event.review_note || '无意见'}</p>
+              <div className="review-history-heading">
+                <strong className={`badge review-history-status review-history-status-${event.review_status}`}>
+                  {reportReviewStatusLabels[event.review_status] ?? event.review_status}
+                </strong>
+                <time dateTime={event.created_at}>{formatDateTime(event.created_at)}</time>
+              </div>
+              <span className="review-history-reviewer">{event.reviewer_email ?? '未知操作人'}</span>
+              <p className="review-history-note">{event.review_note || '无意见'}</p>
             </li>
           ))}
         </ol>

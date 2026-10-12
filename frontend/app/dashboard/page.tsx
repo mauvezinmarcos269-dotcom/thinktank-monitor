@@ -317,8 +317,8 @@ export default function DashboardPage() {
           <span className="badge">
             全部 {crawlCandidates?.total ?? 0}
           </span>
-          {crawlCandidates?.by_status.map((item) => (
-            <span className="badge" key={item.code ?? item.label}>
+          {crawlCandidates?.by_status.map((item, index) => (
+            <span className="badge" key={`${item.code ?? item.label}-${index}`}>
               {item.label} {item.count}
             </span>
           ))}
@@ -332,10 +332,10 @@ export default function DashboardPage() {
         <h3>主要跳过原因</h3>
         {crawlCandidates?.by_skip_reason.length ? (
           <div className="status-line">
-            {crawlCandidates.by_skip_reason.map((item) => (
+            {crawlCandidates.by_skip_reason.map((item, index) => (
               <span
                 className="badge badge-warning"
-                key={item.code ?? item.label}
+                key={`${item.code ?? item.label}-${index}`}
               >
                 {item.label} {item.count}
               </span>

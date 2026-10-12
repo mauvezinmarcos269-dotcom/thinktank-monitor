@@ -2,11 +2,7 @@
 
 import { type Source, type ThinkTank } from '@/lib/institution';
 import { type Report } from '@/lib/report';
-import {
-  reportAIStatusLabels,
-  reportCrawlStatusLabels,
-  sourceTypeLabels,
-} from '@/lib/status';
+import { reportAIStatusLabels, reportCrawlStatusLabels, sourceTypeLabels } from '@/lib/status';
 
 import {
   countTextChars,
@@ -56,9 +52,7 @@ function getAIMetaClass(status: Report['ai_status']): string {
     return 'report-list-meta-danger';
   }
 
-  if (
-    ['queued', 'processing', 'finalize_queued', 'finalizing'].includes(status)
-  ) {
+  if (['queued', 'processing', 'finalize_queued', 'finalizing'].includes(status)) {
     return 'report-list-meta-warning';
   }
 
@@ -87,15 +81,9 @@ function getDeliverableMetaClass(completedCount: number): string {
   return 'report-list-meta-muted';
 }
 
-function getDeliverableMetaTitle(
-  items: { label: string; ready: boolean }[]
-): string {
-  const readyLabels = items
-    .filter((item) => item.ready)
-    .map((item) => item.label);
-  const missingLabels = items
-    .filter((item) => !item.ready)
-    .map((item) => item.label);
+function getDeliverableMetaTitle(items: { label: string; ready: boolean }[]): string {
+  const readyLabels = items.filter((item) => item.ready).map((item) => item.label);
+  const missingLabels = items.filter((item) => !item.ready).map((item) => item.label);
 
   if (missingLabels.length === 0) {
     return `成果已齐全：${readyLabels.join('、')}`;
@@ -108,10 +96,7 @@ function getDeliverableMetaTitle(
   return `已生成：${readyLabels.join('、')}；待生成：${missingLabels.join('、')}`;
 }
 
-function getReportTaskChip(
-  report: Report,
-  deliverableCount: number
-): { label: string; className: string } {
+function getReportTaskChip(report: Report, deliverableCount: number): { label: string; className: string } {
   if (report.crawl_status === 'failed') {
     return {
       label: '抓取失败',
@@ -213,15 +198,14 @@ export function ReportListItem({
   const reviewNotePreview = getReviewNotePreview(report.review_note);
   const sourceLabel = [
     thinkTank?.name ?? '未知智库',
-    source ? sourceTypeLabels[source.source_type] ?? source.source_type : '未知来源',
+    source ? (sourceTypeLabels[source.source_type] ?? source.source_type) : '未知来源',
     source ? formatSourceUrl(source.url) : '',
   ]
     .filter(Boolean)
     .join(' / ');
   const sourceTitle = source ? `${sourceLabel} / ${source.url}` : sourceLabel;
   const isSubmittingCurrentAI = submittingAIReportId === report.id;
-  const isSubmittingOtherAI =
-    submittingAIReportId !== null && !isSubmittingCurrentAI;
+  const isSubmittingOtherAI = submittingAIReportId !== null && !isSubmittingCurrentAI;
   const isCurrentAIProcessing = isAIProcessing(report);
   const retryAIButtonLabel = isSubmittingCurrentAI
     ? '提交中'
@@ -263,7 +247,7 @@ export function ReportListItem({
         </span>
         <span className={taskChip.className}>{taskChip.label}</span>
         <span className={documentType.className}>{documentType.label}</span>
-        <span className={workflow.className}>{workflow.label}</span>
+        <span className={`${workflow.className} report-workflow-chip`}>{workflow.label}</span>
         <span className="report-source-line" title={sourceTitle}>
           {sourceLabel}
         </span>
@@ -272,43 +256,31 @@ export function ReportListItem({
           <small>{dateLabel}</small>
           <small className={getCrawlMetaClass(report.crawl_status)}>
             抓取：
-            {reportCrawlStatusLabels[report.crawl_status] ??
-              report.crawl_status}
+            {reportCrawlStatusLabels[report.crawl_status] ?? report.crawl_status}
           </small>
           <small className={getAIMetaClass(report.ai_status)}>
             AI：{reportAIStatusLabels[report.ai_status] ?? report.ai_status}
           </small>
-          <small
-            className={getDeliverableMetaClass(deliverableCount)}
-            title={deliverableTitle}
-          >
+          <small className={getDeliverableMetaClass(deliverableCount)} title={deliverableTitle}>
             成果：{deliverableCount}/3
           </small>
           {reviewNotePreview ? (
-            <small
-              className="report-list-meta-info"
-              title={`复核意见：${reviewNotePreview}`}
-            >
+            <small className="report-list-meta-info" title={`复核意见：${reviewNotePreview}`}>
               复核意见
             </small>
           ) : null}
         </span>
       </button>
-      {canRetryAI &&
-        report.review_status === 'needs_rerun' &&
-        report.crawl_status === 'success' &&
-        hasContentText && (
-          <button
-            type="button"
-            className="report-list-action"
-            onClick={() => onRetryAI(report.id)}
-            disabled={
-              isSubmittingCurrentAI || isSubmittingOtherAI || isCurrentAIProcessing
-            }
-          >
-            {retryAIButtonLabel}
-          </button>
-        )}
+      {canRetryAI && report.review_status === 'needs_rerun' && report.crawl_status === 'success' && hasContentText && (
+        <button
+          type="button"
+          className="report-list-action"
+          onClick={() => onRetryAI(report.id)}
+          disabled={isSubmittingCurrentAI || isSubmittingOtherAI || isCurrentAIProcessing}
+        >
+          {retryAIButtonLabel}
+        </button>
+      )}
     </li>
   );
 }

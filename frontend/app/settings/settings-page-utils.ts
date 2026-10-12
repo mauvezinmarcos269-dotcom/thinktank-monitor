@@ -1,7 +1,4 @@
-import {
-  type SourceCreateInput,
-  type SourceHealth,
-} from '@/lib/institution';
+import { type SourceCreateInput, type SourceHealth } from '@/lib/institution';
 import { type CrawlRunStatus } from '@/lib/status';
 
 export const sourceTypeOptions: Array<{
@@ -14,10 +11,7 @@ export const sourceTypeOptions: Array<{
   { value: 'topic_page', label: '专题页' },
 ];
 
-export const crawlableSourceTypes = new Set<SourceCreateInput['source_type']>([
-  'rss',
-  'website',
-]);
+export const crawlableSourceTypes = new Set<SourceCreateInput['source_type']>(['rss', 'website']);
 
 export const healthLabels: Record<SourceHealth['health_status'], string> = {
   healthy: '正常',
@@ -27,10 +21,7 @@ export const healthLabels: Record<SourceHealth['health_status'], string> = {
   disabled: '停用',
 };
 
-export const healthBadgeClasses: Record<
-  SourceHealth['health_status'],
-  string
-> = {
+export const healthBadgeClasses: Record<SourceHealth['health_status'], string> = {
   healthy: 'badge badge-success',
   warning: 'badge badge-warning',
   failed: 'badge badge-danger',
@@ -69,6 +60,10 @@ export const candidateReasonOptions = [
   '无效 URL',
   '同一来源内重复',
   '已入库重复',
+  '未发现 PDF 链接',
+  'PDF 页数不足',
+  'PDF 文本不足',
+  'PDF 获取或解析失败',
   'PDF 获取或页数/文本检查失败',
   '涉华判断失败',
   '非涉华',
@@ -98,6 +93,10 @@ export const sourceHealthFilterOptions: Array<{
   { value: 'no_candidates', label: '无候选' },
   { value: 'duplicate_candidates', label: '重复候选' },
 ];
+
+export function isSourceHealthFilter(value: string | null): value is SourceHealthFilter {
+  return sourceHealthFilterOptions.some((option) => option.value === value);
+}
 
 const diagnosisWeight: Record<string, number> = {
   document_gate_failed: 0,
@@ -147,17 +146,13 @@ export function sortSourceHealth(items: SourceHealth[]): SourceHealth[] {
   };
 
   return [...items].sort((left, right) => {
-    const healthDifference =
-      weight[left.health_status] - weight[right.health_status];
+    const healthDifference = weight[left.health_status] - weight[right.health_status];
 
     if (healthDifference !== 0) {
       return healthDifference;
     }
 
-    return (
-      (diagnosisWeight[left.diagnosis_code] ?? 99) -
-      (diagnosisWeight[right.diagnosis_code] ?? 99)
-    );
+    return (diagnosisWeight[left.diagnosis_code] ?? 99) - (diagnosisWeight[right.diagnosis_code] ?? 99);
   });
 }
 
@@ -165,14 +160,76 @@ export function getLatestRun(source: SourceHealth) {
   return source.recent_crawl_runs[0] ?? null;
 }
 
-export function getSaveRate(
-  run: SourceHealth['recent_crawl_runs'][number]
-): number {
+export function getSaveRate(run: SourceHealth['recent_crawl_runs'][number]): number {
   if (run.found_count <= 0) {
     return 0;
   }
 
   return Math.round((run.saved_count / run.found_count) * 100);
+}
+
+type CrawlQualitySummary = {
+  metrics: { label: string; value: string }[];
+  skips: string[];
+};
+
+export function parseCrawlQualitySummary(text: string | null): CrawlQualitySummary | null {
+  if (!text?.startsWith('质量检查：')) {
+    return null;
+  }
+
+  const parts = text
+    .replace(/^质量检查：/, '')
+    .split('；')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const metrics: CrawlQualitySummary['metrics'] = [];
+  const skips: string[] = [];
+
+  parts.forEach((part) => {
+    if (part.startsWith('跳过：')) {
+      skips.push(
+        ...part
+          .replace(/^跳过：/, '')
+          .split('，')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      );
+      return;
+    }
+
+    const metricMatch = part.match(/^(原始候选|有效去重后|入库)\s+(\d+)\s+条$/);
+    if (metricMatch) {
+      metrics.push({ label: metricMatch[1], value: metricMatch[2] });
+    }
+  });
+
+  return metrics.length > 0 || skips.length > 0 ? { metrics, skips } : null;
+}
+
+function hasOnlyExpectedCandidateSkips(run: SourceHealth['recent_crawl_runs'][number]): boolean {
+  const summary = parseCrawlQualitySummary(run.error);
+
+  if (!summary?.skips.length) {
+    return false;
+  }
+
+  let skippedCandidates = 0;
+
+  for (const skip of summary.skips) {
+    const match = skip.match(/^(已入库重复|同一来源内重复|并发重复入库|PDF 页数不足)\s+(\d+)\s+条$/);
+
+    if (!match || Number(match[2]) <= 0) {
+      return false;
+    }
+
+    // 来源内去重发生在 found_count 计数前。
+    if (match[1] !== '同一来源内重复') {
+      skippedCandidates += Number(match[2]);
+    }
+  }
+
+  return skippedCandidates === run.found_count;
 }
 
 export function getSourceReviewReason(source: SourceHealth): string | null {
@@ -202,8 +259,22 @@ export function getSourceReviewReason(source: SourceHealth): string | null {
     return '尚未试抓';
   }
 
+  if (latestRun && latestRun.status === 'running') {
+    return '抓取仍在运行';
+  }
+
   if (latestRun && latestRun.found_count > 0 && latestRun.saved_count === 0) {
-    return source.diagnosis_label || '有候选但未入库';
+    if (
+      source.rollout_stage === 'pilot_crawl' &&
+      source.health_status === 'healthy' &&
+      source.diagnosis_code === 'ok' &&
+      latestRun.status === 'success' &&
+      hasOnlyExpectedCandidateSkips(latestRun)
+    ) {
+      return null;
+    }
+
+    return source.diagnosis_code === 'ok' ? '有候选但未入库' : source.diagnosis_label || '有候选但未入库';
   }
 
   if (
@@ -214,17 +285,10 @@ export function getSourceReviewReason(source: SourceHealth): string | null {
     return source.diagnosis_label;
   }
 
-  if (latestRun && latestRun.status === 'running') {
-    return '抓取仍在运行';
-  }
-
   return null;
 }
 
-export function matchesSourceHealthFilter(
-  source: SourceHealth,
-  filter: SourceHealthFilter
-): boolean {
+export function matchesSourceHealthFilter(source: SourceHealth, filter: SourceHealthFilter): boolean {
   if (filter === 'all') {
     return true;
   }
@@ -242,23 +306,17 @@ export function matchesSourceHealthFilter(
   }
 
   if (filter === 'relevance') {
-    return ['relevance_gate_failed', 'non_china_candidates'].includes(
-      source.diagnosis_code
-    );
+    return ['relevance_gate_failed', 'non_china_candidates'].includes(source.diagnosis_code);
   }
 
   return source.diagnosis_code === filter;
 }
 
-export function getSourceHealthFilterCounts(
-  sources: SourceHealth[]
-): Record<SourceHealthFilter, number> {
+export function getSourceHealthFilterCounts(sources: SourceHealth[]): Record<SourceHealthFilter, number> {
   return sourceHealthFilterOptions.reduce(
     (counts, option) => ({
       ...counts,
-      [option.value]: sources.filter((source) =>
-        matchesSourceHealthFilter(source, option.value)
-      ).length,
+      [option.value]: sources.filter((source) => matchesSourceHealthFilter(source, option.value)).length,
     }),
     {} as Record<SourceHealthFilter, number>
   );

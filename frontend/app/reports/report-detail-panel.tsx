@@ -3,18 +3,11 @@
 import { type RefObject } from 'react';
 
 import { type Source, type ThinkTank } from '@/lib/institution';
-import {
-  type AIProgress,
-  type Report,
-  type ReportReviewEvent,
-} from '@/lib/report';
+import { type AIProgress, type Report, type ReportReviewEvent } from '@/lib/report';
 
 import { ReportDetailArticle } from './report-detail-article';
 import { type ReportDocumentType } from './report-detail-header';
-import {
-  type CopyTarget,
-  type ReportView,
-} from './report-page-utils';
+import { type CopyTarget, type ReportView } from './report-page-utils';
 import { type ReportReviewStatus } from '@/lib/status';
 
 type ReportDetailPanelProps = {
@@ -105,64 +98,63 @@ export function ReportDetailPanel({
   onRetryAI,
 }: ReportDetailPanelProps) {
   return (
-    <section className="panel report-detail-panel">
+    <section id="report-detail-panel" className="panel report-detail-panel">
       {loadingDetail && <p>正在加载报告详情……</p>}
-      {detailError && (
-        <p className="message-error">{detailError}</p>
-      )}
-      {taskMessage && (
-        <p className="message-success">{taskMessage}</p>
-      )}
+      {detailError && <p className="message-error">{detailError}</p>}
+      {taskMessage && <p className="message-success">{taskMessage}</p>}
 
       {selected && selectedDocumentType && !loadingDetail && (
-        <ReportDetailArticle
-          report={selected}
-          documentType={selectedDocumentType}
-          source={selectedSource}
-          thinkTank={selectedThinkTank}
-          activeView={activeView}
-          copyingTarget={copyingTarget}
-          exportingReport={exportingReport}
-          exportingDocx={exportingDocx}
-          canFetchContent={canFetchContent}
-          canRetryAI={canRetryAI}
-          submittingFetch={submittingFetch}
-          submittingAIReportId={submittingAIReportId}
-          aiActionLabel={aiActionLabel}
-          updatingReview={updatingReview}
-          reviewNoteDraft={reviewNoteDraft}
-          highlightReviewSection={highlightReviewSection}
-          reviewSectionRef={reviewSectionRef}
-          adminDetailsSummary={adminDetailsSummary}
-          reviewHistorySummary={reviewHistorySummary}
-          aiProgressSummary={aiProgressSummary}
-          loadingReviewEvents={loadingReviewEvents}
-          reviewEventsError={reviewEventsError}
-          reviewEvents={reviewEvents}
-          loadingProgress={loadingProgress}
-          progressError={progressError}
-          aiProgress={aiProgress}
-          openReviewDetails={openReviewDetails}
-          onViewSelect={onViewSelect}
-          onCopyCommentary={onCopyCommentary}
-          onCopyTranslation={onCopyTranslation}
-          onCopyCurrent={onCopyCurrent}
-          onExportMarkdown={onExportMarkdown}
-          onExportDocx={onExportDocx}
-          onReviewStatusChange={onReviewStatusChange}
-          onReviewNoteChange={onReviewNoteChange}
-          onReviewNoteSave={onReviewNoteSave}
-          onFetchContent={onFetchContent}
-          onRetryAI={onRetryAI}
-        />
+        <>
+          <a className="mobile-report-navigation" href="#report-list-panel">
+            返回报告列表
+          </a>
+          <ReportDetailArticle
+            report={selected}
+            documentType={selectedDocumentType}
+            source={selectedSource}
+            thinkTank={selectedThinkTank}
+            activeView={activeView}
+            copyingTarget={copyingTarget}
+            exportingReport={exportingReport}
+            exportingDocx={exportingDocx}
+            canFetchContent={canFetchContent}
+            canRetryAI={canRetryAI}
+            submittingFetch={submittingFetch}
+            submittingAIReportId={submittingAIReportId}
+            aiActionLabel={aiActionLabel}
+            updatingReview={updatingReview}
+            reviewNoteDraft={reviewNoteDraft}
+            highlightReviewSection={highlightReviewSection}
+            reviewSectionRef={reviewSectionRef}
+            adminDetailsSummary={adminDetailsSummary}
+            reviewHistorySummary={reviewHistorySummary}
+            aiProgressSummary={aiProgressSummary}
+            loadingReviewEvents={loadingReviewEvents}
+            reviewEventsError={reviewEventsError}
+            reviewEvents={reviewEvents}
+            loadingProgress={loadingProgress}
+            progressError={progressError}
+            aiProgress={aiProgress}
+            openReviewDetails={openReviewDetails}
+            onViewSelect={onViewSelect}
+            onCopyCommentary={onCopyCommentary}
+            onCopyTranslation={onCopyTranslation}
+            onCopyCurrent={onCopyCurrent}
+            onExportMarkdown={onExportMarkdown}
+            onExportDocx={onExportDocx}
+            onReviewStatusChange={onReviewStatusChange}
+            onReviewNoteChange={onReviewNoteChange}
+            onReviewNoteSave={onReviewNoteSave}
+            onFetchContent={onFetchContent}
+            onRetryAI={onRetryAI}
+          />
+        </>
       )}
 
       {!selected && !loadingDetail && !detailError && (
         <div className="empty-state empty-state-large">
           <strong>请选择一篇报告</strong>
-          <p>
-            从左侧列表选择报告后，这里会显示全文翻译、主要观点和深层研判。
-          </p>
+          <p>从左侧列表选择报告后，这里会显示全文翻译、主要观点和深层研判。</p>
         </div>
       )}
     </section>

@@ -1,21 +1,13 @@
 ﻿'use client';
 
-import {
-  Suspense,
-  useState,
-} from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { AppShell } from '@/components/app-shell';
 import { type Report } from '@/lib/report';
 import { ReportDetailPanel } from './report-detail-panel';
 import { ReportListPanel } from './report-list-panel';
-import {
-  getAIProgressSummary,
-  getReportListBusyState,
-  getReviewHistorySummary,
-  PAGE_SIZE,
-} from './report-page-utils';
+import { getAIProgressSummary, getReportListBusyState, getReviewHistorySummary, PAGE_SIZE } from './report-page-utils';
 import { useCurrentUser } from './use-current-user';
 import { useReportActions } from './use-report-actions';
 import { useReportDetail } from './use-report-detail';
@@ -34,10 +26,7 @@ function ReportsPageContent() {
   const [taskMessage, setTaskMessage] = useState<string | null>(null);
 
   const currentUser = useCurrentUser();
-  const {
-    thinkTanks,
-    sources,
-  } = useReportInstitutions(setListError);
+  const { thinkTanks, sources } = useReportInstitutions(setListError);
   const {
     selectedReportIds,
     setSelectedReportIds,
@@ -99,10 +88,7 @@ function ReportsPageContent() {
     handleSourceFilterChange,
     handleWorkflowShortcut,
   } = useReportFilters(resetReportListState);
-  const {
-    totalReports,
-    loadingList,
-  } = useReportList({
+  const { totalReports, loadingList } = useReportList({
     page,
     reviewStatusFilter,
     aiStatusFilter,
@@ -135,21 +121,9 @@ function ReportsPageContent() {
     thinkTanks,
     thinkTankFilter,
   });
-  const reviewHistorySummary = getReviewHistorySummary(
-    reviewEvents,
-    loadingReviewEvents,
-    reviewEventsError
-  );
-  const aiProgressSummary = getAIProgressSummary(
-    aiProgress,
-    loadingProgress,
-    progressError
-  );
-  const {
-    reviewSectionRef,
-    highlightReviewSection,
-    openReviewDetails,
-  } = useReviewFocus({
+  const reviewHistorySummary = getReviewHistorySummary(reviewEvents, loadingReviewEvents, reviewEventsError);
+  const aiProgressSummary = getAIProgressSummary(aiProgress, loadingProgress, progressError);
+  const { reviewSectionRef, highlightReviewSection, openReviewDetails } = useReviewFocus({
     selected,
     searchParams,
   });
@@ -183,15 +157,20 @@ function ReportsPageContent() {
     setTaskMessage,
     loadReviewEvents,
   });
-  const {
-    isReportListBusy,
-    reportListBusyMessage,
-  } = getReportListBusyState({
+  const { isReportListBusy, reportListBusyMessage } = getReportListBusyState({
     submittingAIReportId,
     submittingBatchReview,
     exportingBatchFormat,
   });
   const totalPages = Math.max(1, Math.ceil(totalReports / PAGE_SIZE));
+
+  const handleReportSelect = async (reportId: number) => {
+    await handleSelect(reportId);
+
+    if (window.matchMedia('(max-width: 820px)').matches) {
+      document.getElementById('report-detail-panel')?.scrollIntoView({ block: 'start' });
+    }
+  };
 
   return (
     <AppShell>
@@ -218,7 +197,7 @@ function ReportsPageContent() {
       {loadingList && <p>正在加载报告列表……</p>}
       {listError && <p className="message-error">{listError}</p>}
 
-      <div className="split-layout">
+      <div className={selected ? 'split-layout split-layout-detail-first' : 'split-layout'}>
         <ReportListPanel
           reports={reports}
           sourcesById={sourceById}
@@ -259,18 +238,14 @@ function ReportsPageContent() {
           onThinkTankChange={handleThinkTankFilterChange}
           onSourceChange={handleSourceFilterChange}
           onWorkflowShortcut={handleWorkflowShortcut}
-          onPreviousPage={() =>
-            setPage((current) => Math.max(1, current - 1))
-          }
-          onNextPage={() =>
-            setPage((current) => Math.min(totalPages, current + 1))
-          }
+          onPreviousPage={() => setPage((current) => Math.max(1, current - 1))}
+          onNextPage={() => setPage((current) => Math.min(totalPages, current + 1))}
           onToggleAllVisible={toggleAllVisibleReports}
           onClearSelection={clearReportSelection}
           onBatchReviewStatusChange={setBatchReviewStatus}
           onApplyBatchReview={handleBatchReviewStatusChange}
           onBatchExport={handleBatchExport}
-          onSelectReport={handleSelect}
+          onSelectReport={handleReportSelect}
           onToggleReportSelection={toggleReportSelection}
           onRetryAI={submitRetryAI}
         />

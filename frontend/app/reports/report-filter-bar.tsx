@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent } from 'react';
+import { type FormEvent, useState } from 'react';
 
 import { type Source, type ThinkTank } from '@/lib/institution';
 import {
@@ -14,14 +14,8 @@ import {
   type ReportReviewStatus,
 } from '@/lib/status';
 
-import {
-  ActiveFilterSummary,
-  type ActiveFilterItem,
-} from './active-filter-summary';
-import {
-  getSourceFilterLabel,
-  ReportFilterFields,
-} from './report-filter-fields';
+import { ActiveFilterSummary, type ActiveFilterItem } from './active-filter-summary';
+import { getSourceFilterLabel, ReportFilterFields } from './report-filter-fields';
 import { WorkflowShortcuts } from './workflow-shortcuts';
 
 type ReportFilterBarProps = {
@@ -55,11 +49,7 @@ type ReportFilterBarProps = {
   onNextPage: () => void;
 };
 
-export type ReportWorkflowShortcut =
-  | 'all'
-  | 'teacher_review'
-  | 'ready_export'
-  | 'needs_rerun';
+export type ReportWorkflowShortcut = 'all' | 'teacher_review' | 'ready_export' | 'needs_rerun';
 
 export function ReportFilterBar({
   searchDraft,
@@ -91,12 +81,9 @@ export function ReportFilterBar({
   onPreviousPage,
   onNextPage,
 }: ReportFilterBarProps) {
-  const selectedSource = sourceFilter
-    ? sourceOptions.find((source) => source.id === sourceFilter)
-    : null;
-  const selectedThinkTank = thinkTankFilter
-    ? thinkTanks.find((thinkTank) => thinkTank.id === thinkTankFilter)
-    : null;
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const selectedSource = sourceFilter ? sourceOptions.find((source) => source.id === sourceFilter) : null;
+  const selectedThinkTank = thinkTankFilter ? thinkTanks.find((thinkTank) => thinkTank.id === thinkTankFilter) : null;
   const activeFilterItems: ActiveFilterItem[] = [
     keywordFilter
       ? {
@@ -143,20 +130,14 @@ export function ReportFilterBar({
     sourceFilter
       ? {
           key: 'source',
-          label: `来源：${
-            selectedSource ? getSourceFilterLabel(selectedSource) : sourceFilter
-          }`,
+          label: `来源：${selectedSource ? getSourceFilterLabel(selectedSource) : sourceFilter}`,
           onClear: () => onSourceChange(''),
         }
       : null,
   ].filter((item): item is ActiveFilterItem => item !== null);
   const hasActiveFilter = activeFilterItems.length > 0;
   const hasExtraShortcutFilter = Boolean(
-    keywordFilter ||
-      contentKindFilter ||
-      deliverableStatusFilter ||
-      thinkTankFilter ||
-      sourceFilter
+    keywordFilter || contentKindFilter || deliverableStatusFilter || thinkTankFilter || sourceFilter
   );
   const activeShortcut =
     !hasExtraShortcutFilter &&
@@ -164,10 +145,7 @@ export function ReportFilterBar({
     aiStatusFilter === 'success' &&
     deliverableStatusFilter === 'complete'
       ? 'teacher_review'
-      : !hasExtraShortcutFilter &&
-          reviewStatusFilter === 'needs_rerun' &&
-          !aiStatusFilter &&
-          !deliverableStatusFilter
+      : !hasExtraShortcutFilter && reviewStatusFilter === 'needs_rerun' && !aiStatusFilter && !deliverableStatusFilter
         ? 'needs_rerun'
         : !keywordFilter &&
             !contentKindFilter &&
@@ -193,15 +171,15 @@ export function ReportFilterBar({
             disabled={loading}
           />
         </label>
-        <button type="submit" disabled={loading}>
+        <button className="report-search-submit" type="submit" disabled={loading}>
           搜索
         </button>
         {keywordFilter ? (
-          <button type="button" onClick={onSearchClear} disabled={loading}>
+          <button className="report-search-clear" type="button" onClick={onSearchClear} disabled={loading}>
             清空搜索
           </button>
         ) : null}
-        <button type="button" onClick={onResetFilters} disabled={loading}>
+        <button className="report-filter-reset" type="button" onClick={onResetFilters} disabled={loading}>
           重置筛选
         </button>
       </form>
@@ -219,34 +197,48 @@ export function ReportFilterBar({
         onResetFilters={onResetFilters}
       />
 
-      <ActiveFilterSummary
-        items={activeFilterItems}
-        loading={loading}
-        onResetFilters={onResetFilters}
-      />
+      <ActiveFilterSummary items={activeFilterItems} loading={loading} onResetFilters={onResetFilters} />
 
-      <ReportFilterFields
-        loading={loading}
-        totalReports={totalReports}
-        page={page}
-        totalPages={totalPages}
-        reviewStatusFilter={reviewStatusFilter}
-        aiStatusFilter={aiStatusFilter}
-        contentKindFilter={contentKindFilter}
-        deliverableStatusFilter={deliverableStatusFilter}
-        thinkTankFilter={thinkTankFilter}
-        sourceFilter={sourceFilter}
-        thinkTanks={thinkTanks}
-        sourceOptions={sourceOptions}
-        onReviewStatusChange={onReviewStatusChange}
-        onAIStatusChange={onAIStatusChange}
-        onContentKindChange={onContentKindChange}
-        onDeliverableStatusChange={onDeliverableStatusChange}
-        onThinkTankChange={onThinkTankChange}
-        onSourceChange={onSourceChange}
-        onPreviousPage={onPreviousPage}
-        onNextPage={onNextPage}
-      />
+      <button
+        className="mobile-list-section-toggle"
+        type="button"
+        aria-expanded={showMobileFilters}
+        aria-controls="report-advanced-filters"
+        onClick={() => setShowMobileFilters((current) => !current)}
+      >
+        <span>高级筛选</span>
+        <small>
+          {totalReports} 篇 · 第 {page}/{totalPages} 页
+        </small>
+      </button>
+
+      <div
+        id="report-advanced-filters"
+        className={`mobile-collapsible-section${showMobileFilters ? ' mobile-collapsible-section-open' : ''}`}
+      >
+        <ReportFilterFields
+          loading={loading}
+          totalReports={totalReports}
+          page={page}
+          totalPages={totalPages}
+          reviewStatusFilter={reviewStatusFilter}
+          aiStatusFilter={aiStatusFilter}
+          contentKindFilter={contentKindFilter}
+          deliverableStatusFilter={deliverableStatusFilter}
+          thinkTankFilter={thinkTankFilter}
+          sourceFilter={sourceFilter}
+          thinkTanks={thinkTanks}
+          sourceOptions={sourceOptions}
+          onReviewStatusChange={onReviewStatusChange}
+          onAIStatusChange={onAIStatusChange}
+          onContentKindChange={onContentKindChange}
+          onDeliverableStatusChange={onDeliverableStatusChange}
+          onThinkTankChange={onThinkTankChange}
+          onSourceChange={onSourceChange}
+          onPreviousPage={onPreviousPage}
+          onNextPage={onNextPage}
+        />
+      </div>
     </>
   );
 }

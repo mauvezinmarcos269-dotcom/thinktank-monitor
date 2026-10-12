@@ -1,10 +1,9 @@
 'use client';
 
+import { useState } from 'react';
+
 import { type Source, type ThinkTank } from '@/lib/institution';
-import {
-  type Report,
-  type ReportBatchExportFormat,
-} from '@/lib/report';
+import { type Report, type ReportBatchExportFormat } from '@/lib/report';
 import {
   type ReportAIStatus,
   type ReportContentKind,
@@ -120,8 +119,10 @@ export function ReportListPanel({
   onToggleReportSelection,
   onRetryAI,
 }: ReportListPanelProps) {
+  const [showMobileBatchActions, setShowMobileBatchActions] = useState(false);
+
   return (
-    <section className="panel report-list-panel">
+    <section id="report-list-panel" className="panel report-list-panel">
       <div className="report-list-controls">
         <ReportFilterBar
           searchDraft={searchDraft}
@@ -155,22 +156,41 @@ export function ReportListPanel({
         />
 
         {canRetryAI && (
-          <ReportBatchActions
-            visibleReportCount={reports.length}
-            selectedReportCount={selectedReportIds.size}
-            visibleSelectedReportCount={visibleSelectedReportCount}
-            allVisibleSelected={allVisibleSelected}
-            loadingList={loadingList}
-            busy={isReportListBusy}
-            batchReviewStatus={batchReviewStatus}
-            submittingBatchReview={submittingBatchReview}
-            exportingBatchFormat={exportingBatchFormat}
-            onToggleAllVisible={onToggleAllVisible}
-            onClearSelection={onClearSelection}
-            onBatchReviewStatusChange={onBatchReviewStatusChange}
-            onApplyBatchReview={onApplyBatchReview}
-            onBatchExport={onBatchExport}
-          />
+          <>
+            <button
+              className="mobile-list-section-toggle"
+              type="button"
+              aria-expanded={showMobileBatchActions}
+              aria-controls="report-batch-actions"
+              onClick={() => setShowMobileBatchActions((current) => !current)}
+            >
+              <span>批量操作</span>
+              <small>
+                本页 {reports.length} 篇 · 已选 {selectedReportIds.size} 篇
+              </small>
+            </button>
+            <div
+              id="report-batch-actions"
+              className={`mobile-collapsible-section${showMobileBatchActions ? ' mobile-collapsible-section-open' : ''}`}
+            >
+              <ReportBatchActions
+                visibleReportCount={reports.length}
+                selectedReportCount={selectedReportIds.size}
+                visibleSelectedReportCount={visibleSelectedReportCount}
+                allVisibleSelected={allVisibleSelected}
+                loadingList={loadingList}
+                busy={isReportListBusy}
+                batchReviewStatus={batchReviewStatus}
+                submittingBatchReview={submittingBatchReview}
+                exportingBatchFormat={exportingBatchFormat}
+                onToggleAllVisible={onToggleAllVisible}
+                onClearSelection={onClearSelection}
+                onBatchReviewStatusChange={onBatchReviewStatusChange}
+                onApplyBatchReview={onApplyBatchReview}
+                onBatchExport={onBatchExport}
+              />
+            </div>
+          </>
         )}
       </div>
 
