@@ -31,6 +31,27 @@ class OrganizationTypeEnum(str, enum.Enum):
     international_organization = "international_organization"
 
 
+class PriorityTierEnum(str, enum.Enum):
+    """机构监测优先级。"""
+
+    p0 = "P0"
+    p1 = "P1"
+    p2 = "P2"
+    p3 = "P3"
+    p4 = "P4"
+
+
+class RegionFocusEnum(str, enum.Enum):
+    """机构重点区域分组。"""
+
+    us = "us"
+    europe = "europe"
+    neighboring = "neighboring"
+    international = "international"
+    domestic = "domestic"
+    candidate = "candidate"
+
+
 class ThinkTank(Base):
     """智库、研究所、基金会、科研联合会等机构。"""
 
@@ -87,6 +108,36 @@ class ThinkTank(Base):
         server_default=text("'think_tank'"),
     )
 
+    priority_tier: Mapped[PriorityTierEnum] = mapped_column(
+        Enum(
+            PriorityTierEnum,
+            name="prioritytierenum",
+            values_callable=lambda enum_class: [
+                item.value
+                for item in enum_class
+            ],
+        ),
+        nullable=False,
+        default=PriorityTierEnum.p4,
+        server_default=text("'P4'"),
+        index=True,
+    )
+
+    region_focus: Mapped[RegionFocusEnum] = mapped_column(
+        Enum(
+            RegionFocusEnum,
+            name="regionfocusenum",
+            values_callable=lambda enum_class: [
+                item.value
+                for item in enum_class
+            ],
+        ),
+        nullable=False,
+        default=RegionFocusEnum.candidate,
+        server_default=text("'candidate'"),
+        index=True,
+    )
+
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "think_tanks.id",
@@ -97,6 +148,14 @@ class ThinkTank(Base):
     )
 
     is_key: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        index=True,
+    )
+
+    is_verified: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,

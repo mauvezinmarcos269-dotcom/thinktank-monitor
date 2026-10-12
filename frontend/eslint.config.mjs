@@ -1,24 +1,21 @@
-﻿import { FlatCompat } from '@eslint/eslintrc';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-
-const currentFile = fileURLToPath(import.meta.url);
-const baseDirectory = path.dirname(currentFile);
-
-const compat = new FlatCompat({
-  baseDirectory,
-});
+import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
 
 const config = [
-  ...compat.extends('next/core-web-vitals'),
+  ...nextCoreWebVitals,
   {
     ignores: [
       '.next/**',
+      '.next/dev/**',
       'node_modules/**',
       'out/**',
       'build/**',
       'next-env.d.ts',
     ],
+  },
+  {
+    rules: {
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ];
 

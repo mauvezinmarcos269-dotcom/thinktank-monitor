@@ -9,7 +9,7 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 - 对报告进行去重、归档和全文保存
 - 调用大语言模型生成翻译和分析评论
 - 支持按照标题、来源、发布时间和分析状态检索报告
-- 为教师和管理员提供统一的监测仪表盘
+- 为教师和管理员提供统一的监测仪表盘、站内通知和定时摘要
 
 ## 技术栈
 
@@ -23,12 +23,15 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 - Celery
 - MinIO
 - JWT
+- Alembic
+- PyMuPDF / pdfplumber
 
 ### 前端
 
 - Next.js
 - React
 - TypeScript
+- ESLint
 
 ## 项目结构
 
@@ -40,9 +43,11 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 │   │   ├── models/
 │   │   ├── schemas/
 │   │   ├── services/
+│   │   ├── workers/
+│   │   ├── scripts/
 │   │   └── main.py
 │   ├── alembic/
-│   ├── requirements.txt
+│   ├── pyproject.toml
 │   └── README.md
 ├── frontend/
 │   ├── app/
@@ -51,4 +56,164 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 │   └── package.json
 ├── docker-compose.yml
 ├── Makefile
+├── docs/
 └── README.md
+```
+
+更多开发约定见 [docs/development.md](docs/development.md)。
+来源分层和数据治理口径见 [docs/source-governance.md](docs/source-governance.md)。
+部署、定时任务、提醒和备份维护见
+[docs/deployment-maintenance.md](docs/deployment-maintenance.md)，其中包含老师本地电脑长期运行的推荐方案。
+老师日常使用说明见 [docs/teacher-local-user-guide.md](docs/teacher-local-user-guide.md)，
+本地启动验收与常见故障分流见
+[docs/teacher-local-startup-checklist.md](docs/teacher-local-startup-checklist.md)。
+老师本地电脑可优先使用 `scripts/teacher-local-start.ps1`、
+`scripts/teacher-local-stop.ps1`、`scripts/teacher-local-status.ps1`、
+`scripts/teacher-local-health.ps1`、`scripts/teacher-local-backup.ps1`
+、`scripts/teacher-local-restore.ps1` 和 `scripts/teacher-local-update.ps1`
+管理服务；遇到问题时可用 `scripts/teacher-local-diagnostics.ps1` 导出诊断包。
+
+## 本地联调
+
+本地联调建议使用独立端口和独立 Celery 队列，避免与 Docker
+中的 worker 抢同一批任务。
+
+在三个 PowerShell 窗口分别运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
+```
+
+默认地址：
+
+- 后端：`http://127.0.0.1:8000`
+- 前端：`http://localhost:3001`
+- Redis：`redis://127.0.0.1:6379/0`
+- 本地 Celery 队列：`thinktank-local-codex`
+- 本地 Celery 结果库：`redis://127.0.0.1:6379/1`
+
+本地联调脚本会自动注入：
+
+- `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`
+- `BACKEND_CORS_ORIGINS` 同时允许 `localhost/127.0.0.1` 的 `3000` 和 `3001`
+
+如果不通过脚本、而是直接在 `frontend` 目录运行 `npm run dev`，请确认
+`frontend/.env.local` 与 `frontend/.env.local.example` 保持一致。
+
+如果 Docker worker 正在运行，它默认只消费 `celery` 队列；
+本地后端和本地 worker 默认使用 `thinktank-local-codex` 队列，
+两者不会互相抢任务。
+
+如果你怀疑还有旧 worker 在同一个 Redis 上运行，可以显式指定队列：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1 -Queue thinktank-local-codex
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1 -Queue thinktank-local-codex
+```
+
+本地手动执行后端诊断、爬虫或 AI 运维命令时，不要直接在 `backend`
+目录运行 `poetry run ...`，否则会读取 Docker 环境使用的 `redis`
+主机名。统一通过包装脚本注入本地 Redis 和 Celery 队列配置：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 poetry run python -m app.scripts.pilot_crawl_sources --help
+```
+
+如需让手动命令投递到现有 Docker worker 消费的 `celery` 队列，可显式传入：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python -m app.scripts.pilot_crawl_sources --help
+```
+
+### 前端构建注意事项
+
+Next.js 的开发服务和生产构建都会写入 `frontend/.next`。
+本地开发时不要在 `npm run dev -p 3001` 正在运行的同时执行
+`npm run build`，否则可能造成开发缓存缺块，页面出现 500。
+
+需要做生产构建检查时，先停止前端开发服务，再运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local-frontend.ps1
+```
+
+或：
+
+```powershell
+cd frontend
+npm run build:local
+```
+
+## 常用检查命令
+
+后端：
+
+```powershell
+cd backend
+poetry run ruff check .
+poetry run pytest
+```
+
+前端：
+
+```powershell
+cd frontend
+npm run typecheck
+npm run lint
+npm run build
+```
+
+## Docker 运行
+
+Docker 环境使用容器网络中的 Redis 地址：
+
+- `redis://redis:6379/0`
+- Docker Celery 队列：`celery`
+- MinIO 服务地址：`minio:9000`
+
+```bash
+docker compose up -d
+```
+
+如果修改了后端、前端、worker、AI 或 Celery 配置，
+需要重建相关 Docker 服务：
+
+```bash
+docker compose up -d --build backend celery-worker celery-beat frontend
+```
+
+### 部署前检查
+
+- 确认 `.env` 和 `backend/.env` 中的密码、JWT 密钥、LLM Key 不使用示例值。
+- 生产环境只开放必要端口；PostgreSQL、Redis、MinIO 控制台不建议直接暴露到公网。
+- `BACKEND_CORS_ORIGINS` 只填写实际前端域名。
+- 后端、Celery worker、Celery beat 和前端容器默认以非 root 用户运行。
+- 前端依赖升级前先运行 `npm audit`，确认是否需要执行 `npm audit fix` 并重新验证构建。
+
+### 通知与摘要配置
+
+系统默认启用每日站内摘要，Celery beat 每天 19:00 调度
+`notification.daily_summary`。如需外发通知，可在后端环境变量中配置：
+
+- `NOTIFICATION_EMAIL_ENABLED`
+- `NOTIFICATION_EMAIL_TO`
+- `NOTIFICATION_SMTP_HOST`
+- `NOTIFICATION_SMTP_PORT`
+- `NOTIFICATION_SMTP_USERNAME`
+- `NOTIFICATION_SMTP_PASSWORD`
+- `NOTIFICATION_SMTP_FROM`
+- `NOTIFICATION_WECOM_WEBHOOK_URL`
+- `NOTIFICATION_FEISHU_WEBHOOK_URL`
+- `NOTIFICATION_INSTANT_ALERTS_ENABLED`
+
+未配置邮件或 webhook 时，系统只生成站内通知，不影响抓取和 AI 处理。
+`NOTIFICATION_INSTANT_ALERTS_ENABLED` 默认关闭；开启后，仅 P0/P1
+来源的新报告入库和 AI 成果完成事件会即时外发，其他更新仍进入每日摘要。

@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 # 替换 Debian 12 (Bookworm) 官方源为阿里云源，避免国内网络超时报错
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
@@ -21,8 +22,14 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false \
     && poetry install --no-root --no-interaction --no-ansi
 
+# 创建非 root 运行用户，降低 Web 与 worker 容器运行风险
+RUN addgroup --system app \
+    && adduser --system --ingroup app app
+
 # 复制项目代码
-COPY . .
+COPY --chown=app:app . .
+
+USER app
 
 EXPOSE 8000
 

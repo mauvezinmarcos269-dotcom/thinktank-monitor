@@ -1,0 +1,176 @@
+# 老师本地使用指南
+
+更新时间：2026-10-11
+
+本文面向日常使用者，尽量不涉及开发细节。平台部署在老师本地电脑后，老师主要通过浏览器使用。
+
+## 一、日常启动
+
+打开 PowerShell，进入项目目录后运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1
+```
+
+这里统一使用 `-NoProfile`，避免老师电脑上的 PowerShell 个人启动脚本或 Conda 初始化报错干扰平台脚本判断。
+
+启动完成后，在浏览器打开：
+
+```text
+http://localhost:3000
+```
+
+如果需要查看服务是否正常运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
+```
+
+如果页面异常、报告长时间不生成，或维护者要求检查服务：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
+```
+
+完整启动验收和常见故障分流见
+[老师本地启动验收清单](teacher-local-startup-checklist.md)。
+
+## 二、日常停止
+
+不使用平台时，可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
+```
+
+停止服务不会删除数据库和历史报告。
+
+## 三、主要页面
+
+### 1. 仪表盘
+
+用于快速查看：
+
+- 待复核与交付报告
+- 未读提醒
+- AI 异常
+- 需要处理的来源
+
+一般先看仪表盘，再进入报告页处理具体材料。
+
+### 2. 研究报告
+
+用于阅读和复核报告成果。
+
+建议阅读顺序：
+
+1. 主要观点
+2. 深层研判
+3. 全文翻译
+4. 原文正文
+
+如果成果质量符合要求，可标记为通过，并导出 Word 或 Markdown。
+
+如果发现漏译、观点重复、字数不足或分析不够深入，可标记为需重新处理，并写下复核意见。
+
+### 3. 通知提醒
+
+用于查看：
+
+- 新报告入库
+- AI 成果完成
+- 每日摘要
+- 需要重跑或处理的报告
+
+初期建议先使用站内通知，等提醒频率稳定后再配置邮件、企业微信或飞书。
+
+### 4. 系统设置
+
+用于查看来源健康、抓取记录和候选报告。
+
+普通使用时不建议频繁修改来源。新增来源、停用来源或扩大自动抓取范围，应由维护者操作。
+
+## 四、报告交付口径
+
+平台生成的成果一般包括：
+
+- 全文翻译稿
+- 分析评论稿第一部分：主要观点，约 1500-2000 字，一般 4 个及以上分论点
+- 分析评论稿第二部分：深层研判，约 2000-2500 字，一般 4 个及以上分论点
+
+导出 Word 后，可继续在 Word 中批注、修改和归档。
+
+## 五、注意事项
+
+1. 老师电脑关机、休眠或 Docker Desktop 停止后，平台不会继续抓取和生成 AI 成果。
+2. 不建议把 `localhost:3000`、`localhost:8000`、数据库或 MinIO 暴露到公网。
+3. 如果页面无法打开，先确认 Docker Desktop 是否启动，再运行状态检查脚本。
+4. 如果 AI 长时间没有结果，可能是模型 Key、额度、网络或 worker 队列问题，需要维护者检查。
+5. 如果某个来源连续失败，不要直接放宽规则，应先查看候选报告和跳过原因。
+
+## 六、备份建议
+
+建议每周备份一次：
+
+- 数据库
+- 已导出的 Word/Markdown 成果
+- 重要配置文件
+
+可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
+```
+
+备份文件建议放到移动硬盘、学院网盘或加密云盘，不要只保存在同一台电脑上。
+
+恢复备份会覆盖当前数据库，日常使用者不要自行操作；需要恢复时请联系维护者。
+
+## 七、更新平台版本
+
+如果维护者已经推送了新版本，可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
+```
+
+这个脚本会先备份当前数据，再拉取代码、重建服务、执行数据库迁移并做健康检查。
+
+## 八、遇到问题时记录什么
+
+先按 [老师本地启动验收清单](teacher-local-startup-checklist.md)
+排查 Docker、端口、后端和 worker 四类常见问题。
+
+如果健康检查出现 `Docker pipe`、`permission denied`、`dockerDesktopLinuxEngine`
+等提示，通常不是平台代码问题，而是当前 Windows 用户暂时没有访问 Docker
+Desktop 的权限。建议按顺序处理：
+
+1. 先打开 Docker Desktop，等待它完全启动。
+2. 关闭当前 PowerShell，重新打开 PowerShell 后再运行健康检查。
+3. 如果仍失败，请维护者用管理员 PowerShell 执行
+   `net localgroup docker-users "$env:USERNAME" /add`，然后注销 Windows
+   并重新登录。
+
+修复后重新运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
+```
+
+请记录：
+
+- 问题发生时间
+- 当前页面
+- 报告标题或报告 ID
+- 页面错误提示
+- 是否刚刚启动、停止或重建过服务
+
+这些信息可以帮助维护者更快定位问题。
+
+如果维护者要求导出诊断包，可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-diagnostics.ps1
+```
+
+生成的压缩包位于 `local-diagnostics/`，默认不包含 `.env` 密钥文件。

@@ -63,12 +63,54 @@ class ThinkTankService:
         if is_active is not None:
             statement = statement.where(ThinkTank.is_active == is_active)
 
-        statement = statement.order_by(ThinkTank.is_key.desc(), ThinkTank.name.asc()).offset(skip).limit(limit)
+        statement = statement.order_by(
+            ThinkTank.priority_tier.asc(),
+            ThinkTank.is_verified.desc(),
+            ThinkTank.is_key.desc(),
+            ThinkTank.country.asc(),
+            ThinkTank.name.asc(),
+        ).offset(skip).limit(limit)
         result = await db.execute(statement)
         return list(result.scalars().all())
 
     async def get_countries(self, db: AsyncSession) -> list[str]:
         statement = select(ThinkTank.country).distinct().order_by(ThinkTank.country.asc())
+        result = await db.execute(statement)
+        return list(result.scalars().all())
+
+    async def get_without_active_sources(
+        self,
+        db: AsyncSession,
+        *,
+        skip: int = 0,
+        limit: int = 200,
+    ) -> list[ThinkTank]:
+        active_source_exists = (
+            select(Source.id)
+            .where(
+                Source.think_tank_id == ThinkTank.id,
+                Source.is_active.is_(True),
+            )
+            .exists()
+        )
+
+        statement = (
+            select(ThinkTank)
+            .where(
+                ThinkTank.is_active.is_(True),
+                ~active_source_exists,
+            )
+            .order_by(
+                ThinkTank.priority_tier.asc(),
+                ThinkTank.is_verified.desc(),
+                ThinkTank.is_key.desc(),
+                ThinkTank.country.asc(),
+                ThinkTank.name.asc(),
+            )
+            .offset(skip)
+            .limit(limit)
+        )
+
         result = await db.execute(statement)
         return list(result.scalars().all())
 
@@ -78,27 +120,49 @@ class ThinkTankService:
         key_think_tanks = await db.scalar(select(func.count()).select_from(ThinkTank).where(ThinkTank.is_key.is_(True)))
         total_sources = await db.scalar(select(func.count()).select_from(Source))
         active_sources = await db.scalar(select(func.count()).select_from(Source).where(Source.is_active.is_(True)))
+        missing_active_sources = await db.scalar(
+            select(func.count())
+            .select_from(ThinkTank)
+            .where(
+                ThinkTank.is_active.is_(True),
+                ~(
+                    select(Source.id)
+                    .where(
+                        Source.think_tank_id == ThinkTank.id,
+                        Source.is_active.is_(True),
+                    )
+                    .exists()
+                ),
+            )
+        )
 
         return {
+            "think_tanks": total_think_tanks or 0,
+            "sources": total_sources or 0,
             "total_think_tanks": total_think_tanks or 0,
             "active_think_tanks": active_think_tanks or 0,
             "key_think_tanks": key_think_tanks or 0,
             "total_sources": total_sources or 0,
             "active_sources": active_sources or 0,
+            "missing_active_sources": missing_active_sources or 0,
         }
 
     async def create(self, db: AsyncSession, payload: ThinkTankCreate) -> ThinkTank:
         await self.ensure_valid_parent(db, parent_id=payload.parent_id)
 
         think_tank = ThinkTank(
+            key=payload.key.strip(),
             name=payload.name.strip(),
             name_en=payload.name_en.strip() if payload.name_en else None,
             country=payload.country.strip(),
             website=normalize_url(payload.website),
             description=payload.description.strip() if payload.description else None,
             organization_type=payload.organization_type,
+            priority_tier=payload.priority_tier,
+            region_focus=payload.region_focus,
             parent_id=payload.parent_id,
             is_key=payload.is_key,
+            is_verified=payload.is_verified,
             is_active=payload.is_active,
         )
 

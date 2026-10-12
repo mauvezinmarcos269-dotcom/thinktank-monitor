@@ -4,30 +4,19 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useState } from 'react';
 
-import {
-  clearLoginSession,
-  getAccessToken,
-  getCurrentUser,
-  type CurrentUser,
-} from '@/lib/auth';
+import { clearLoginSession, getAccessToken, getCurrentUser, type CurrentUser } from '@/lib/auth';
+import { fetchUnreadNotificationCount } from '@/lib/notification';
+import { useNotificationPolling } from '@/lib/use-notification-polling';
 
 type AppShellProps = {
   children: ReactNode;
 };
 
 const navigationItems = [
-  {
-    href: '/dashboard',
-    label: '仪表盘',
-  },
-  {
-    href: '/reports',
-    label: '研究报告',
-  },
-  {
-    href: '/settings',
-    label: '系统设置',
-  },
+  { href: '/dashboard', label: '仪表盘' },
+  { href: '/reports', label: '研究报告' },
+  { href: '/notifications', label: '通知提醒' },
+  { href: '/settings', label: '系统设置' },
 ];
 
 export function AppShell({ children }: AppShellProps) {
@@ -35,66 +24,102 @@ export function AppShell({ children }: AppShellProps) {
   const router = useRouter();
 
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const { data: unreadCount, error: notificationError } = useNotificationPolling(fetchUnreadNotificationCount, {
+    enabled: pathname !== '/login' && !isCheckingAuth && currentUser !== null,
+  });
 
   useEffect(() => {
-    const accessToken = getAccessToken();
-    const user = getCurrentUser();
+    if (pathname === '/login') {
+      setIsCheckingAuth(false);
+      return;
+    }
 
-    if (!accessToken || !user) {
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      clearLoginSession();
+      router.replace('/login');
+      return;
+    }
+
+    const user = getCurrentUser();
+    if (!user) {
+      clearLoginSession();
+      router.replace('/login');
+      return;
+    }
+
+    if (user.is_active === false) {
+      clearLoginSession();
       router.replace('/login');
       return;
     }
 
     setCurrentUser(user);
-    setIsReady(true);
-  }, [router]);
+    setIsCheckingAuth(false);
+  }, [pathname, router]);
 
   function handleLogout() {
     clearLoginSession();
     router.replace('/login');
   }
 
-  if (!isReady || !currentUser) {
-    return <main>正在验证登录状态…</main>;
+  if (pathname === '/login') {
+    return <>{children}</>;
+  }
+
+  if (isCheckingAuth) {
+    return (
+      <main style={{ padding: '2rem' }}>
+        <p>正在验证登录状态…</p>
+      </main>
+    );
+  }
+
+  if (!currentUser) {
+    return null;
   }
 
   return (
-    <div>
-      <header>
-        <div>
-          <Link href="/dashboard">ThinkTank Monitor</Link>
-          <span>全球智库涉华研究监测平台</span>
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <Link href="/dashboard" className="brand-title">
+            ThinkTank Monitor
+          </Link>
+          <span className="brand-subtitle">全球智库涉华报告编译平台</span>
         </div>
 
-        <div>
+        <nav className="top-nav" aria-label="主导航">
+          {navigationItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="nav-link"
+              aria-current={pathname === item.href ? 'page' : undefined}
+              title={
+                item.href === '/notifications' && notificationError ? `通知暂未更新：${notificationError}` : undefined
+              }
+            >
+              <span>{item.label}</span>
+              {item.href === '/notifications' && unreadCount !== null && unreadCount > 0 ? (
+                <span className="nav-count">{unreadCount}</span>
+              ) : null}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="userbar">
           <span>{currentUser.email}</span>
-          <span>{currentUser.role === 'admin' ? '管理员' : '研究用户'}</span>
+          <span className="badge">{currentUser.role === 'admin' ? '管理员' : '研究用户'}</span>
           <button type="button" onClick={handleLogout}>
             退出登录
           </button>
         </div>
       </header>
 
-      <div>
-        <aside>
-          <nav aria-label="主导航">
-            <ul>
-              {navigationItems.map((item) => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    aria-current={pathname === item.href ? 'page' : undefined}
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </aside>
-
-        <main>{children}</main>
+      <div className="layout">
+        <main className="main-content">{children}</main>
       </div>
     </div>
   );
