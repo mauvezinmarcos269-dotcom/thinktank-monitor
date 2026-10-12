@@ -11,7 +11,18 @@ from app.services.source_rollout_policy import (
 )
 
 
-@pytest.mark.parametrize("key", ["brookings", "cfr", "csis", "piie"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "atlantic_council",
+        "brookings",
+        "carnegie",
+        "cfr",
+        "csis",
+        "piie",
+        "rand",
+    ],
+)
 def test_pilot_crawl_policy_for_verified_sample_sources(key: str) -> None:
     policy = get_source_rollout_policy(key)
 

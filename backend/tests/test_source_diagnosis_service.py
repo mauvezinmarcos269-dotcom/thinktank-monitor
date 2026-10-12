@@ -55,7 +55,7 @@ def test_classifies_success_without_candidates_from_quality_summary() -> None:
 def test_classifies_success_without_reports_due_to_document_gate() -> None:
     diagnosis = classify_source_diagnosis(
         crawl_status=CrawlStatusEnum.success,
-        error_text="质量检查：原始候选 4 条；有效去重后 4 条；入库 0 条；跳过：PDF 获取或页数/文本检查失败 4 条",
+        error_text="质量检查：原始候选 4 条；有效去重后 4 条；入库 0 条；跳过：未发现 PDF 链接 3 条，PDF 页数不足 1 条",
         saved_report_count=0,
     )
 

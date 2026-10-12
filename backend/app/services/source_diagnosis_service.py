@@ -29,7 +29,14 @@ def _classify_success_without_reports(error_text: str | None) -> SourceDiagnosis
             advice="抓取成功但未解析出候选条目，请检查来源入口、列表页结构或是否需要新增发现入口。",
         )
 
-    if "PDF 获取或页数/文本检查失败" in text:
+    document_gate_markers = (
+        "PDF 获取或页数/文本检查失败",
+        "未发现 PDF 链接",
+        "PDF 页数不足",
+        "PDF 文本不足",
+        "PDF 获取或解析失败",
+    )
+    if any(marker in text for marker in document_gate_markers):
         return SourceDiagnosis(
             code="document_gate_failed",
             label="候选未通过文档检查",

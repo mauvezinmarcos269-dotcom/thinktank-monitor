@@ -16,6 +16,7 @@ from app.services.crawl_quality_service import CrawlQualityStats
 class CandidateIntakeResult:
     articles_by_url: dict[str, dict[str, object]]
     candidates_by_url: dict[str, CrawlCandidate]
+    unique_candidate_count: int
 
 
 def normalize_url(url: str) -> str | None:
@@ -67,6 +68,7 @@ def intake_crawl_candidates(
 ) -> CandidateIntakeResult:
     articles_by_url: dict[str, dict[str, object]] = {}
     candidates_by_url: dict[str, CrawlCandidate] = {}
+    seen_urls: set[str] = set()
 
     for article in parsed_articles:
         candidate = CrawlCandidate(
@@ -95,10 +97,7 @@ def intake_crawl_candidates(
         candidate.normalized_url = normalized_url
 
         # 同一份来源结果内，URL 重复时保留第一条。
-        if normalized_url not in articles_by_url:
-            articles_by_url[normalized_url] = article
-            candidates_by_url[normalized_url] = candidate
-        else:
+        if normalized_url in seen_urls:
             mark_candidate_skipped(
                 candidate,
                 reason_code=CrawlCandidateSkipReason.duplicate_in_feed.value,
@@ -108,10 +107,39 @@ def intake_crawl_candidates(
                 "同源重复",
                 article.get("url"),
             )
+            continue
 
-    quality_stats.unique_candidates = len(articles_by_url)
+        seen_urls.add(normalized_url)
+
+        preflight_skip_reason_code = article.get("preflight_skip_reason_code")
+
+        if preflight_skip_reason_code:
+            preflight_error = article.get("preflight_skip_error")
+            reason_code = str(preflight_skip_reason_code)
+            mark_candidate_skipped(
+                candidate,
+                reason_code=reason_code,
+                error=preflight_error,
+            )
+
+            if reason_code == CrawlCandidateSkipReason.document_failed.value:
+                quality_stats.add_document_failure_sample(
+                    article.get("url"),
+                    preflight_error,
+                )
+
+            continue
+
+        if article.get("pdf_url"):
+            candidate.pdf_url = str(article["pdf_url"])
+
+        articles_by_url[normalized_url] = article
+        candidates_by_url[normalized_url] = candidate
+
+    quality_stats.unique_candidates = len(seen_urls)
 
     return CandidateIntakeResult(
         articles_by_url=articles_by_url,
         candidates_by_url=candidates_by_url,
+        unique_candidate_count=len(seen_urls),
     )

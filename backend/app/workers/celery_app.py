@@ -35,9 +35,10 @@ celery_app.conf.update(
 
     # 定时任务配置
     beat_schedule={
-        "daily-crawl": {
+        "poll-due-sources": {
             "task": "crawl.all_sources",
-            "schedule": crontab(hour=18, minute=0),
+            "schedule": crontab(minute="*/5"),
+            "options": {"expires": 300},
         },
         # 新增：每 5 分钟轮询一次 pending 状态的报告投递给 AI
         "auto-enqueue-ai-tasks": {

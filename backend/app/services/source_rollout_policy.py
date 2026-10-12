@@ -23,11 +23,14 @@ class SourceRolloutPolicy:
 
 PILOT_CRAWL_KEYS = {
     "aei",
+    "atlantic_council",
     "brookings",
+    "carnegie",
     "cfr",
     "csis",
     "ecfr",
     "piie",
+    "rand",
 }
 
 DISCOVERY_ONLY_KEYS: set[str] = set()
