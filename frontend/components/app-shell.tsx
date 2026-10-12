@@ -4,13 +4,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useState } from 'react';
 
-import {
-  clearLoginSession,
-  getAccessToken,
-  getCurrentUser,
-  type CurrentUser,
-} from '@/lib/auth';
+import { clearLoginSession, getAccessToken, getCurrentUser, type CurrentUser } from '@/lib/auth';
 import { fetchUnreadNotificationCount } from '@/lib/notification';
+import { useNotificationPolling } from '@/lib/use-notification-polling';
 
 type AppShellProps = {
   children: ReactNode;
@@ -29,16 +25,9 @@ export function AppShell({ children }: AppShellProps) {
 
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [unreadCount, setUnreadCount] = useState(0);
-
-  async function refreshUnreadCount() {
-    try {
-      const count = await fetchUnreadNotificationCount();
-      setUnreadCount(count);
-    } catch {
-      setUnreadCount(0);
-    }
-  }
+  const { data: unreadCount, error: notificationError } = useNotificationPolling(fetchUnreadNotificationCount, {
+    enabled: pathname !== '/login' && !isCheckingAuth && currentUser !== null,
+  });
 
   useEffect(() => {
     if (pathname === '/login') {
@@ -68,27 +57,7 @@ export function AppShell({ children }: AppShellProps) {
 
     setCurrentUser(user);
     setIsCheckingAuth(false);
-
-    refreshUnreadCount();
   }, [pathname, router]);
-
-  useEffect(() => {
-    if (pathname === '/login') {
-      return;
-    }
-
-    function handleRefresh() {
-      refreshUnreadCount();
-    }
-
-    window.addEventListener('thinktank:notifications-updated', handleRefresh);
-    window.addEventListener('focus', handleRefresh);
-
-    return () => {
-      window.removeEventListener('thinktank:notifications-updated', handleRefresh);
-      window.removeEventListener('focus', handleRefresh);
-    };
-  }, [pathname]);
 
   function handleLogout() {
     clearLoginSession();
@@ -128,9 +97,12 @@ export function AppShell({ children }: AppShellProps) {
               href={item.href}
               className="nav-link"
               aria-current={pathname === item.href ? 'page' : undefined}
+              title={
+                item.href === '/notifications' && notificationError ? `通知暂未更新：${notificationError}` : undefined
+              }
             >
               <span>{item.label}</span>
-              {item.href === '/notifications' && unreadCount > 0 ? (
+              {item.href === '/notifications' && unreadCount !== null && unreadCount > 0 ? (
                 <span className="nav-count">{unreadCount}</span>
               ) : null}
             </Link>
@@ -139,9 +111,7 @@ export function AppShell({ children }: AppShellProps) {
 
         <div className="userbar">
           <span>{currentUser.email}</span>
-          <span className="badge">
-            {currentUser.role === 'admin' ? '管理员' : '研究用户'}
-          </span>
+          <span className="badge">{currentUser.role === 'admin' ? '管理员' : '研究用户'}</span>
           <button type="button" onClick={handleLogout}>
             退出登录
           </button>

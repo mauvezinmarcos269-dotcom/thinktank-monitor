@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -12,6 +13,7 @@ class NotificationRead(BaseModel):
     event_type: str
     title: str
     message: str
+    payload: dict[str, Any] | None = None
     is_read: bool
     created_at: datetime
 

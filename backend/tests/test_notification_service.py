@@ -286,6 +286,17 @@ async def test_create_for_roles_targets_active_users_with_selected_roles(
     )
 
     db = _FakeRoleDb([1, 3])
+    payload = {
+        "daily_summary": {
+            "failure_sources": [
+                {
+                    "source_id": 15,
+                    "think_tank_name": "RAND Corporation",
+                    "reason": "HTTP 403",
+                }
+            ]
+        }
+    }
     notifications = await NotificationService().create_for_roles(
         db,  # type: ignore[arg-type]
         roles={RoleEnum.admin},
@@ -293,6 +304,7 @@ async def test_create_for_roles_targets_active_users_with_selected_roles(
         title="报告需重跑",
         message="Sample report",
         report_id=12,
+        payload=payload,
     )
 
     assert notifications == db.added
@@ -301,6 +313,7 @@ async def test_create_for_roles_targets_active_users_with_selected_roles(
     assert {notification.event_type for notification in notifications} == {
         NotificationEventType.report_review_needs_rerun.value
     }
+    assert [notification.payload for notification in notifications] == [payload, payload]
     assert called == [
         (
             NotificationEventType.report_review_needs_rerun.value,

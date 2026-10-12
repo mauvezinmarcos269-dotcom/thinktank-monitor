@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -49,6 +50,11 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+
+    payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
     )
 
     is_read: Mapped[bool] = mapped_column(

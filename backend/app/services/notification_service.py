@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +42,7 @@ class NotificationService:
         title: str,
         message: str,
         report_id: int | None = None,
+        payload: dict[str, Any] | None = None,
     ) -> list[Notification]:
         result = await db.execute(
             select(User.id).where(
@@ -57,6 +59,7 @@ class NotificationService:
                 event_type=event_type,
                 title=title[:255],
                 message=message,
+                payload=payload,
                 is_read=False,
             )
             for user_id in user_ids
@@ -84,6 +87,7 @@ class NotificationService:
         title: str,
         message: str,
         report_id: int | None = None,
+        payload: dict[str, Any] | None = None,
     ) -> list[Notification]:
         if not roles:
             return []
@@ -104,6 +108,7 @@ class NotificationService:
                 event_type=event_type,
                 title=title[:255],
                 message=message,
+                payload=payload,
                 is_read=False,
             )
             for user_id in user_ids
@@ -142,6 +147,7 @@ class NotificationService:
             event_type=NotificationEventType.daily_summary.value,
             title=summary.title,
             message=summary.message,
+            payload=summary.payload,
         )
         await db.commit()
         await self.dispatch_external_summary(

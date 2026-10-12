@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,7 @@ from app.models.report import Report
 from app.models.source import CrawlStatusEnum, Source
 from app.models.think_tank import ThinkTank
 from app.services.crawl_candidate_service import get_candidate_status_label
+from app.services.crawl_error_summary import summarize_crawl_error
 
 
 @dataclass(frozen=True)
@@ -20,6 +22,7 @@ class DailySummary:
     title: str
     message: str
     metrics: dict[str, int]
+    payload: dict[str, Any]
 
 
 async def count_where(db: AsyncSession, model: type, *conditions) -> int:
@@ -46,6 +49,7 @@ async def build_daily_summary(
     failed_sources = await count_where(
         db,
         Source,
+        Source.is_active.is_(True),
         Source.last_crawl_status == CrawlStatusEnum.failed,
     )
     saved_candidates = await count_where(
@@ -84,7 +88,10 @@ async def build_daily_summary(
         await db.execute(
             select(Source, ThinkTank.name)
             .join(ThinkTank, ThinkTank.id == Source.think_tank_id)
-            .where(Source.last_crawl_status == CrawlStatusEnum.failed)
+            .where(
+                Source.is_active.is_(True),
+                Source.last_crawl_status == CrawlStatusEnum.failed,
+            )
             .order_by(Source.last_crawled_at.desc().nullslast(), Source.id.desc())
             .limit(5)
         )
@@ -116,9 +123,18 @@ async def build_daily_summary(
         for content_kind, count in content_kind_rows
     ) or "暂无新增报告类型"
     report_lines = "\n".join(f"- {report_title}" for report_title in recent_report_rows)
-    failure_lines = "\n".join(
-        f"- {think_tank_name}：{source.last_error or '最近一次抓取失败'}"
+    failure_source_items = [
+        {
+            "source_id": source.id,
+            "think_tank_name": think_tank_name,
+            "source_url": source.url,
+            "reason": summarize_crawl_error(source.last_error),
+        }
         for source, think_tank_name in failure_rows
+    ]
+    failure_lines = "\n".join(
+        f"- {item['think_tank_name']}：{item['reason']}"
+        for item in failure_source_items
     )
     message_parts = [
         f"过去 {lookback_hours} 小时新增入库报告 {new_reports} 篇。",
@@ -144,5 +160,12 @@ async def build_daily_summary(
             "ai_completed_reports": ai_completed_reports,
             "ai_failed_reports": ai_failed_reports,
             "failed_sources": failed_sources,
+        },
+        payload={
+            "daily_summary": {
+                "lookback_hours": lookback_hours,
+                "failed_sources": failed_sources,
+                "failure_sources": failure_source_items,
+            },
         },
     )
