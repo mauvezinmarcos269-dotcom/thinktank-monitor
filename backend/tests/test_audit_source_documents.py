@@ -79,3 +79,47 @@ async def test_audit_source_documents_includes_rollout_policy(
     assert result["status"] == "ok"
     assert result["rollout_stage"] == ROLLOUT_STAGE_PILOT_CRAWL
     assert result["can_run_pilot_crawl"] is True
+
+
+async def test_audit_source_documents_respects_preflight_document_skip(
+    monkeypatch,
+) -> None:
+    async def fake_fetch_source_articles(_source):
+        return [
+            {
+                "title": "China no PDF",
+                "url": "https://example.org/reports/china-no-pdf",
+                "content_type": "report",
+                "preflight_skip_reason_code": "document_failed",
+                "preflight_skip_error": (
+                    "发现阶段预检：报告详情页中未发现 PDF 链接。"
+                ),
+            }
+        ]
+
+    async def fake_fetch_report_document(*_args, **_kwargs):
+        raise AssertionError("preflight skipped articles should not refetch")
+
+    monkeypatch.setattr(
+        "app.scripts.audit_source_documents.fetch_source_articles",
+        fake_fetch_source_articles,
+    )
+    monkeypatch.setattr(
+        "app.scripts.audit_source_documents.fetch_report_document",
+        fake_fetch_report_document,
+    )
+
+    result = await audit_source_documents(
+        key="aei",
+        name="American Enterprise Institute",
+        source=_FakeSource(),  # type: ignore[arg-type]
+        discovery_timeout_seconds=1,
+        document_timeout_seconds=1,
+        max_candidates=1,
+    )
+
+    assert result["document_failed"] == 1
+    assert result["samples"][0]["status"] == "document_preflight_skipped"
+    assert result["samples"][0]["error"] == (
+        "发现阶段预检：报告详情页中未发现 PDF 链接。"
+    )

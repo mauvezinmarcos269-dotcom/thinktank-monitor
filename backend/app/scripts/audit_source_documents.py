@@ -139,6 +139,19 @@ async def audit_source_documents(
             "url": str(article.get("url", ""))[:240],
             "content_type": str(article.get("content_type", "")),
         }
+        preflight_skip_error = article.get("preflight_skip_error")
+
+        if article.get("preflight_skip_reason_code"):
+            document_failed += 1
+            sample.update(
+                {
+                    "status": "document_preflight_skipped",
+                    "error_type": "PreflightDocumentCheck",
+                    "error": str(preflight_skip_error or "")[:300],
+                }
+            )
+            samples.append(sample)
+            continue
 
         try:
             document = await asyncio.wait_for(

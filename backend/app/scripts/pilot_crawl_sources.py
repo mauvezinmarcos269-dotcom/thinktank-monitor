@@ -22,8 +22,14 @@ from app.models.source import CrawlStatusEnum, SourceTypeEnum
 from app.services.crawl_candidate_service import (
     mark_candidate_saved,
     mark_candidate_skipped,
+    set_candidate_document_metadata,
 )
+from app.services.crawl_lock import crawl_execution_lock
 from app.services.crawl_quality_service import CrawlQualityStats
+from app.services.crawler.candidate_duplicate_service import (
+    build_candidate_duplicate_index,
+    mark_duplicate_candidate,
+)
 from app.services.crawler.candidate_intake import intake_crawl_candidates
 from app.services.crawler.report_document_service import fetch_report_document
 from app.services.crawler.source_article_discovery import fetch_source_articles
@@ -152,6 +158,34 @@ async def pilot_crawl_source(
     notify: bool,
     ai_status: str,
 ) -> dict[str, object]:
+    async with crawl_execution_lock(pilot_source.source.id) as acquired:
+        if not acquired:
+            return {
+                "key": pilot_source.key,
+                "name": pilot_source.name,
+                "source_id": pilot_source.source.id,
+                "status": "skipped",
+                "reason": "already_running",
+                "found_count": 0,
+                "saved_count": 0,
+            }
+        return await _pilot_crawl_source_locked(
+            pilot_source,
+            max_saved=max_saved,
+            max_candidates=max_candidates,
+            notify=notify,
+            ai_status=ai_status,
+        )
+
+
+async def _pilot_crawl_source_locked(
+    pilot_source: PilotSource,
+    *,
+    max_saved: int,
+    max_candidates: int,
+    notify: bool,
+    ai_status: str,
+) -> dict[str, object]:
     now = datetime.now(UTC)
     source = pilot_source.source
 
@@ -182,21 +216,13 @@ async def pilot_crawl_source(
         )
         articles_by_url = candidate_intake.articles_by_url
         candidates_by_url = candidate_intake.candidates_by_url
-        normalized_urls = list(articles_by_url)
+        found_count = candidate_intake.unique_candidate_count
 
-        existing_urls: set[str] = set()
-
-        if normalized_urls:
-            result = await db.execute(
-                select(Report.normalized_url).where(
-                    Report.normalized_url.in_(normalized_urls),
-                )
-            )
-            existing_urls = {
-                normalized_url
-                for normalized_url in result.scalars().all()
-                if normalized_url is not None
-            }
+        duplicate_index = await build_candidate_duplicate_index(
+            db,
+            candidates=candidates_by_url.values(),
+            exclude_crawl_run_id=crawl_run.id,
+        )
 
         saved_count = 0
 
@@ -206,16 +232,12 @@ async def pilot_crawl_source(
             if saved_count >= max_saved:
                 break
 
-            if normalized_url in existing_urls:
-                mark_candidate_skipped(
-                    candidate,
-                    reason_code=CrawlCandidateSkipReason.duplicate_existing.value,
-                )
-                quality_stats.duplicate_existing += 1
-                quality_stats.add_sample(
-                    "已入库重复",
-                    article["url"],
-                )
+            if mark_duplicate_candidate(
+                candidate,
+                duplicate_kind=duplicate_index.classify(candidate),
+                quality_stats=quality_stats,
+                url=article["url"],
+            ):
                 continue
 
             try:
@@ -234,12 +256,25 @@ async def pilot_crawl_source(
                     reason_code=CrawlCandidateSkipReason.document_failed.value,
                     error=exc,
                 )
-                quality_stats.document_failed += 1
-                quality_stats.add_sample(
-                    "PDF 获取或页数/文本检查失败",
+                quality_stats.add_document_failure_sample(
                     article["url"],
                     exc,
                 )
+                continue
+
+            set_candidate_document_metadata(candidate, document)
+
+            document_duplicate_index = await build_candidate_duplicate_index(
+                db,
+                candidates=[candidate],
+                exclude_crawl_run_id=crawl_run.id,
+            )
+            if mark_duplicate_candidate(
+                candidate,
+                duplicate_kind=document_duplicate_index.classify(candidate),
+                quality_stats=quality_stats,
+                url=article["url"],
+            ):
                 continue
 
             content_hash = hashlib.sha256(
@@ -285,12 +320,6 @@ async def pilot_crawl_source(
                         candidate,
                         report_id=report.id,
                     )
-                    candidate.pdf_url = document.pdf_url
-                    candidate.page_count = document.page_count
-                    candidate.non_empty_page_count = document.non_empty_page_count
-                    candidate.pdf_byte_length = document.pdf_byte_length
-                    candidate.content_kind = document.content_kind
-
                 saved_count += 1
             except IntegrityError:
                 mark_candidate_skipped(
@@ -306,7 +335,7 @@ async def pilot_crawl_source(
         finished_at = datetime.now(UTC)
         quality_stats.saved_reports = saved_count
         crawl_run.status = CrawlRunStatus.success.value
-        crawl_run.found_count = len(articles_by_url)
+        crawl_run.found_count = found_count
         crawl_run.saved_count = saved_count
         crawl_run.error = quality_stats.to_summary()
         crawl_run.finished_at = finished_at.replace(tzinfo=None)
@@ -321,7 +350,7 @@ async def pilot_crawl_source(
             "name": pilot_source.name,
             "source_id": source.id,
             "crawl_run_id": crawl_run.id,
-            "found_count": len(articles_by_url),
+            "found_count": found_count,
             "saved_count": saved_count,
             "summary": crawl_run.error,
         }

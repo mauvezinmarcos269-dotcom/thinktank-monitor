@@ -37,6 +37,14 @@ def test_china_signal_requires_word_boundaries_for_short_acronyms() -> None:
         title="Countering CCP influence operations",
         url="https://example.org/report/countering-ccp-influence",
     )
+    assert has_china_signal(
+        title="Limited nuclear attacks in East Asia",
+        url="https://example.org/report/guardian-tiger",
+    )
+    assert has_china_signal(
+        title="The case for a US Northeast Asia Command",
+        url="https://example.org/report/northeast-asia-command",
+    )
     assert not has_china_signal(
         title="Making the Varsity Cut: Who Plays High School Sports",
         url="https://example.org/report/making-the-varsity-cut",
@@ -248,6 +256,154 @@ def test_parse_carnegie_requires_china_signal_off_general_page() -> None:
     assert [article["title"] for article in articles] == [
         "China and global energy",
     ]
+
+
+def test_parse_atlantic_council_china_region_keeps_report_cards() -> None:
+    html = """
+<article class="post-card">
+  <a href="/in-depth-research-reports/report/technology-competition-and-taiwan-strategy/">
+    <h3>Technology Competition and Taiwan Strategy</h3>
+  </a>
+  <span>Report</span>
+  <span>September 13, 2026</span>
+</article>
+<article class="post-card">
+  <a href="/in-depth-research-reports/report/global-energy-outlook/">
+    <h3>Global Energy Outlook</h3>
+  </a>
+  <p>This card sits on a China region page but has no China signal.</p>
+  <span>Report</span>
+</article>
+<article class="post-card">
+  <a href="/blogs/new-atlanticist/china-news-analysis/">
+    <h3>China news analysis</h3>
+  </a>
+  <span>Blog</span>
+</article>
+"""
+
+    articles = parse_core_site_reports(
+        html,
+        "https://www.atlanticcouncil.org/region/china/",
+        CORE_SITE_CONFIGS["atlantic_council"],
+    )
+
+    assert articles == [
+        {
+            "title": "Technology Competition and Taiwan Strategy",
+            "url": (
+                "https://www.atlanticcouncil.org/in-depth-research-reports/"
+                "report/technology-competition-and-taiwan-strategy/"
+            ),
+            "published_at": datetime(2026, 9, 13),
+            "content_type": "report",
+            "allow_web_article_fallback": False,
+        }
+    ]
+
+
+def test_parse_atlantic_council_general_reports_require_china_signal() -> None:
+    html = """
+<article class="post-card">
+  <a href="/in-depth-research-reports/report/global-energy-outlook/">
+    <h3>Global Energy Outlook</h3>
+  </a>
+  <span>Report</span>
+</article>
+<article class="post-card">
+  <a href="/in-depth-research-reports/report/china-technology-competition/">
+    <h3>China Technology Competition</h3>
+  </a>
+  <span>Report</span>
+</article>
+<article class="post-card">
+  <a href="/event/china-strategy-forum/">
+    <h3>China strategy forum</h3>
+  </a>
+</article>
+"""
+
+    articles = parse_core_site_reports(
+        html,
+        "https://www.atlanticcouncil.org/in-depth-research-reports/",
+        CORE_SITE_CONFIGS["atlantic_council"],
+    )
+
+    assert [article["title"] for article in articles] == [
+        "China Technology Competition",
+    ]
+
+
+def test_parse_atlantic_council_global_china_hub_keeps_pdf_report_paths() -> None:
+    html = """
+<article class="post-card">
+  <a href="/in-depth-research-reports/report/maintaining-taiwans-international-space-to-enhance-deterrence-against-china/">
+    <h3>Beijing pressures Taiwan’s remaining diplomatic partners</h3>
+  </a>
+  <span>Report</span>
+</article>
+<article class="post-card">
+  <a href="/blogs/new-atlanticist/china-diplomacy-news/">
+    <h3>China diplomacy news</h3>
+  </a>
+  <span>Blog</span>
+</article>
+"""
+
+    articles = parse_core_site_reports(
+        html,
+        (
+            "https://www.atlanticcouncil.org/programs/global-china-hub/"
+            "global-china-hub-publications/"
+        ),
+        CORE_SITE_CONFIGS["atlantic_council"],
+    )
+
+    assert [article["url"] for article in articles] == [
+        (
+            "https://www.atlanticcouncil.org/in-depth-research-reports/"
+            "report/maintaining-taiwans-international-space-to-enhance-"
+            "deterrence-against-china/"
+        )
+    ]
+
+
+def test_parse_atlantic_council_keeps_east_asia_report_paths() -> None:
+    html = """
+<article class="post-card">
+  <a href="/in-depth-research-reports/report/preparing-for-and-countering-limited-nuclear-attacks-in-east-asia-guardian-tiger-iii/">
+    <h3>Preparing for and countering limited nuclear attacks in East Asia</h3>
+  </a>
+  <span>Report</span>
+</article>
+"""
+
+    articles = parse_core_site_reports(
+        html,
+        "https://www.atlanticcouncil.org/content-type/in-depth-research-reports/page/2/",
+        CORE_SITE_CONFIGS["atlantic_council"],
+    )
+
+    assert [article["title"] for article in articles] == [
+        "Preparing for and countering limited nuclear attacks in East Asia",
+    ]
+
+
+def test_atlantic_council_config_includes_verified_pdf_discovery_pages() -> None:
+    discovery_urls = CORE_SITE_CONFIGS["atlantic_council"].discovery_urls
+
+    assert (
+        "https://www.atlanticcouncil.org/programs/global-china-hub/"
+        "global-china-hub-publications/"
+    ) in discovery_urls
+    assert (
+        "https://www.atlanticcouncil.org/content-type/"
+        "in-depth-research-reports/page/2/"
+    ) in discovery_urls
+    assert (
+        "https://www.atlanticcouncil.org/content-type/"
+        "in-depth-research-reports/page/6/"
+    ) in discovery_urls
 
 
 def test_parse_heritage_reports_keeps_china_report_paths() -> None:

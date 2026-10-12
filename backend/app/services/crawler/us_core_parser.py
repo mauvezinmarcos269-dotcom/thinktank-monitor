@@ -86,6 +86,44 @@ CORE_SITE_CONFIGS: dict[str, CoreSiteConfig] = {
         content_type="research",
         allow_web_article_fallback=True,
     ),
+    "atlantic_council": CoreSiteConfig(
+        name="Atlantic Council",
+        hosts=frozenset(
+            {
+                "www.atlanticcouncil.org",
+                "atlanticcouncil.org",
+            }
+        ),
+        discovery_urls=(
+            "https://www.atlanticcouncil.org/region/china/",
+            "https://www.atlanticcouncil.org/in-depth-research-reports/",
+            (
+                "https://www.atlanticcouncil.org/programs/global-china-hub/"
+                "global-china-hub-publications/"
+            ),
+            "https://www.atlanticcouncil.org/content-type/in-depth-research-reports/",
+            (
+                "https://www.atlanticcouncil.org/content-type/"
+                "in-depth-research-reports/page/2/"
+            ),
+            (
+                "https://www.atlanticcouncil.org/content-type/"
+                "in-depth-research-reports/page/6/"
+            ),
+            (
+                "https://www.atlanticcouncil.org/content-series/"
+                "atlantic-council-strategy-paper-series/"
+            ),
+        ),
+        path_prefixes=(
+            "/in-depth-research-reports/report/",
+            "/in-depth-research-reports/issue-brief/",
+            "/content-series/atlantic-council-strategy-paper-series/",
+        ),
+        require_china_signal=True,
+        require_china_signal_in_title_or_url=True,
+        content_type="report",
+    ),
     "cfr": CoreSiteConfig(
         name="Council on Foreign Relations",
         hosts=frozenset({"www.cfr.org", "cfr.org"}),

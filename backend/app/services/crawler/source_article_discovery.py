@@ -2,6 +2,7 @@ from datetime import datetime
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
+from app.core.status import CrawlCandidateSkipReason
 from app.models import Source
 from app.models.source import SourceTypeEnum
 from app.services.crawler.brookings_parser import parse_brookings_reports
@@ -54,6 +55,9 @@ ECFR_DISCOVERY_URLS = (
 )
 
 DISCOVERY_FETCH_TIMEOUT_SECONDS = 20.0
+ATLANTIC_COUNCIL_NO_PDF_PREFLIGHT_ERROR = (
+    "发现阶段预检：报告详情页中未发现 PDF 链接。"
+)
 
 CORE_US_SITE_CONFIG_BY_HOST: dict[str, CoreSiteConfig] = {
     host: config
@@ -126,6 +130,54 @@ async def _fetch_multi_entry_website_articles(
         discovery_errors=discovery_errors,
     )
     return list(articles_by_url.values())
+
+
+async def _add_pdf_link_preflight(
+    articles: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    checked_articles: list[dict[str, object]] = []
+
+    for article in articles:
+        url = str(article.get("url", "")).strip()
+
+        if not url:
+            checked_articles.append(article)
+            continue
+
+        try:
+            resource = await fetch_resource(
+                url,
+                timeout_seconds=DISCOVERY_FETCH_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            checked_articles.append(article)
+            continue
+
+        pdf_url = extract_report_pdf_url(
+            resource.content,
+            resource.final_url,
+        )
+        checked_article = {
+            **article,
+        }
+
+        if pdf_url is None:
+            checked_article.update(
+                {
+                    "preflight_skip_reason_code": (
+                        CrawlCandidateSkipReason.document_failed.value
+                    ),
+                    "preflight_skip_error": (
+                        ATLANTIC_COUNCIL_NO_PDF_PREFLIGHT_ERROR
+                    ),
+                }
+            )
+        else:
+            checked_article["pdf_url"] = pdf_url
+
+        checked_articles.append(checked_article)
+
+    return checked_articles
 
 
 def _decode_resource_content(content: str | bytes) -> str:
@@ -505,7 +557,7 @@ async def fetch_source_articles(
                 ),
             )
 
-            return await _fetch_multi_entry_website_articles(
+            articles = await _fetch_multi_entry_website_articles(
                 discovery_urls=discovery_urls,
                 parser=lambda content, final_url: parse_core_site_reports(
                     content,
@@ -513,6 +565,11 @@ async def fetch_source_articles(
                     core_site_config,
                 ),
             )
+
+            if core_site_config.name == "Atlantic Council":
+                return await _add_pdf_link_preflight(articles)
+
+            return articles
 
         raise ValueError(
             "当前尚未配置该 website 来源的专用解析器："

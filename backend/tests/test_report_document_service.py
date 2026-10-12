@@ -1,9 +1,11 @@
 import pytest
 
 from app.services.crawler.http_client import FetchResult
+from app.services.crawler.pdf_extractor import PdfExtractionResult
 from app.services.crawler.report_document_service import (
     MIN_REPORT_PAGE_COUNT,
     MIN_WEB_ARTICLE_CONTENT_LENGTH,
+    ReportDocumentValidationError,
     fetch_report_document,
 )
 
@@ -226,3 +228,96 @@ async def test_fetch_report_document_keeps_short_pdf_error_when_web_article_is_s
             "https://www.aei.org/research-products/report/short-china-analysis/",
             allow_web_article_fallback=True,
         )
+
+
+@pytest.mark.parametrize(
+    ("page_count", "text", "expected_error"),
+    [
+        (14, "China policy report text", "报告页数不足"),
+        (21, "", "PDF 未提取出有效文本"),
+    ],
+)
+async def test_document_validation_error_preserves_extracted_pdf_metadata(
+    monkeypatch,
+    page_count: int,
+    text: str,
+    expected_error: str,
+) -> None:
+    page_url = "https://example.org/reports/china"
+    pdf_url = "https://example.org/files/china-final.pdf"
+    pdf_bytes = b"%PDF validation test"
+    non_empty_page_count = page_count - 1 if text else 0
+
+    async def fake_fetch_resource(url: str) -> FetchResult:
+        if url == page_url:
+            return FetchResult(
+                content=b'<a href="/download.pdf">Download PDF</a>',
+                content_type="text/html",
+                final_url=page_url,
+                status_code=200,
+            )
+
+        assert url == "https://example.org/download.pdf"
+        return FetchResult(
+            content=pdf_bytes,
+            content_type="application/pdf",
+            final_url=pdf_url,
+            status_code=200,
+        )
+
+    monkeypatch.setattr(
+        "app.services.crawler.report_document_service.fetch_resource",
+        fake_fetch_resource,
+    )
+    monkeypatch.setattr(
+        "app.services.crawler.report_document_service.extract_pdf_text",
+        lambda _content: PdfExtractionResult(
+            text=text,
+            page_count=page_count,
+            non_empty_page_count=non_empty_page_count,
+        ),
+    )
+
+    with pytest.raises(ReportDocumentValidationError, match=expected_error) as caught:
+        await fetch_report_document(page_url)
+
+    document = caught.value.document
+    assert document.page_url == page_url
+    assert document.pdf_url == pdf_url
+    assert document.content_kind == "pdf"
+    assert document.page_count == page_count
+    assert document.non_empty_page_count == non_empty_page_count
+    assert document.pdf_byte_length == len(pdf_bytes)
+    assert document.text == text
+
+
+async def test_document_at_minimum_page_count_still_passes(monkeypatch) -> None:
+    pdf_bytes = b"%PDF valid report"
+    pdf_url = "https://example.org/china.pdf"
+
+    async def fake_fetch_resource(url: str) -> FetchResult:
+        return FetchResult(
+            content=pdf_bytes,
+            content_type="application/pdf",
+            final_url=url,
+            status_code=200,
+        )
+
+    monkeypatch.setattr(
+        "app.services.crawler.report_document_service.fetch_resource",
+        fake_fetch_resource,
+    )
+    monkeypatch.setattr(
+        "app.services.crawler.report_document_service.extract_pdf_text",
+        lambda _content: PdfExtractionResult(
+            text="China policy report text",
+            page_count=MIN_REPORT_PAGE_COUNT,
+            non_empty_page_count=MIN_REPORT_PAGE_COUNT,
+        ),
+    )
+
+    document = await fetch_report_document(pdf_url)
+
+    assert document.page_count == MIN_REPORT_PAGE_COUNT
+    assert document.content_kind == "pdf"
+    assert document.pdf_byte_length == len(pdf_bytes)

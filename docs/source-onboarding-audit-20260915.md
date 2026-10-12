@@ -952,7 +952,7 @@ poetry run python -m app.scripts.pilot_crawl_sources --keys aei --max-saved 1 --
 验证结果：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python ...
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python ...
 ```
 
 - 实际 broker：`redis://127.0.0.1:6379/0`
@@ -974,7 +974,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -
 执行命令：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python -m app.scripts.pilot_crawl_sources --keys aei --max-saved 1 --max-candidates 15 --ai-status pending
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python -m app.scripts.pilot_crawl_sources --keys aei --max-saved 1 --max-candidates 15 --ai-status pending
 ```
 
 抓取结果：
@@ -1286,13 +1286,660 @@ poetry run python -m app.scripts.audit_source_documents --keys rand --max-candid
 - 可对 RAND 再执行一次 `--allow-standard-review --max-saved 1 --max-candidates 5 --ai-status skipped` 受控试写。
 - 仍不直接升级为 `pilot_crawl`；至少需要第二次试写样本通过前端人工复核后再评估。
 
+### 2026-09-30 RAND 二次只读复核与受控试写
+
+执行计划：
+
+- 先对 RAND 当前网站结果做只读复核，不写库。
+- 只读复核通过后执行一次受控试写，限制 `--max-saved 1`，并使用 `--ai-status skipped` 避免自动触发 AI 生成。
+- 写入后只读核验数据库记录，再决定是否更新 rollout 文档。
+
+只读复核命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.audit_source_documents --keys rand --max-candidates 5 --discovery-timeout 90 --document-timeout 120
+```
+
+只读复核结果：
+
+| 来源 | rollout 状态 | 原始候选 | 去重候选 | 检查候选 | 文档通过 | 文档失败 | 结论 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| RAND Corporation | `standard_review` | 9 | 9 | 5 | 5 | 0 | 当前候选均为显性涉华长篇 PDF，可进行第二次受控试写 |
+
+抽样明细：
+
+| 标题 | 结果 | 页数 | 说明 |
+| --- | --- | ---: | --- |
+| `The Scope and Nature of the U.S.-China Competition` | 通过 | 113 | PDF 可下载，文本约 320,311 字符 |
+| `China's Strategic Petroleum Reserve as a Geoeconomic Tool` | 通过 | 23 | PDF 可下载，文本约 48,240 字符 |
+| `Understanding China's Naval Maintenance Management` | 通过 | 71 | PDF 可下载，文本约 232,056 字符 |
+| `AI Development in the United States and China: Evidence from a New Dataset of AI Developer Firms` | 通过 | 64 | PDF 可下载，文本约 131,174 字符 |
+| `Exploring AI's Operational Implications in a Future U.S.-China Conflict: Initial Observations from the Camp(ai)gn Wargame` | 通过 | 40 | PDF 可下载，文本约 125,348 字符 |
+
+受控试写命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys rand --allow-standard-review --max-saved 1 --max-candidates 5 --ai-status skipped
+```
+
+受控试写结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | AI 状态 | 通知 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| RAND Corporation | 7 | 724 | 5 | 1 | `skipped` | 未开启 |
+
+新增报告：
+
+| report_id | 标题 | 页数 | 非空页 | 正文长度 | 文档形态 | review 状态 | 判断 |
+| ---: | --- | ---: | ---: | ---: | --- | --- | --- |
+| 439 | `The Scope and Nature of the U.S.-China Competition` | 113 | 108 | 320,311 | PDF | `pending_review` | 标题显性涉华，PDF 与正文抽取合格，待前端人工复核 |
+
+质量结论：
+
+- RAND 涉华过滤修复后的候选质量稳定，二次试写未再保存不明显涉华报告。
+- 本轮证明 RAND 当前解析器、PDF 提取和 20 页门槛可以覆盖高价值涉华长报告。
+- 在 report 439 完成 AI 生成和人工复核前，RAND 仍保持 `standard_review`，不直接升级为 `pilot_crawl`。
+- 当时下一步是先由前端人工复核 report 439 的主题相关性、PDF 链接、正文抽取完整性和展示效果；通过后再评估是否升级为每次最多新增 1 篇的小批量试运行。
+
+### 2026-09-30 RAND AI 生成、人工复核与升级
+
+AI 生成：
+
+- 已对 report 439 执行报告 AI 生成。
+- 任务分块总数 130 个，其中全文翻译 109 个、分析分块 21 个。
+- 分块结果 130/130 完成，失败 0 个。
+- 最终 `ai_status=success`。
+
+成果质量抽查：
+
+| 成果 | 长度 | 结构 | 判断 |
+| --- | ---: | --- | --- |
+| 全文翻译 | 115,462 字符 | 开头、中段、结尾连续，包含注释与参考文献、`第 113 页注释` | 可交付，术语可后续人工润色 |
+| 主要观点 | 1,570 字符 | 4 个分论点 | 符合 1500-2000 字和 4 个以上分论点要求 |
+| 深层研判 | 2,384 字符 | 5 个分论点 | 符合 2000-2500 字和 4 个以上分论点要求 |
+
+人工复核：
+
+- 已将 report 439 标记为 `approved`。
+- 复核记录 ID：48。
+- 复核意见：`RAND 二次受控试写样本已完成复核：PDF 113 页，正文抽取完整；AI 全文翻译、主要观点和深层研判均已生成，字数和分论点结构符合交付要求。翻译术语后续可人工润色，但不影响本轮自动化流程验收，同意通过。`
+
+升级处理：
+
+- RAND 已完成“只读复核 -> 受控试写 -> AI 生成 -> 人工通过”的完整闭环。
+- `source_rollout_policy.py` 已将 `rand` 纳入 `PILOT_CRAWL_KEYS`。
+- RAND 文档策略保持 `pdf_20_page_required`，不允许网页长文特例。
+- 后续仍应采用每次最多新增 1 篇、前端人工复核后再扩大的保守节奏。
+
+### 2026-10-01 RAND 正式 pilot_crawl 试抓
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys rand --max-saved 1 --max-candidates 5 --ai-status skipped
+```
+
+运行结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | AI 状态 | 说明 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| RAND Corporation | 7 | 725 | 5 | 0 | `skipped` | 不带 `--allow-standard-review` 成功通过策略守卫；5 条候选均为重复 |
+
+候选明细：
+
+| 标题 | 状态 | 跳过原因 |
+| --- | --- | --- |
+| `The Scope and Nature of the U.S.-China Competition` | `skipped` | `duplicate_existing` |
+| `China's Strategic Petroleum Reserve as a Geoeconomic Tool` | `skipped` | `duplicate_existing` |
+| `Understanding China's Naval Maintenance Management` | `skipped` | `duplicate_existing` |
+| `AI Development in the United States and China: Evidence from a New Dataset of AI Developer Firms` | `skipped` | `duplicate_existing` |
+| `Exploring AI's Operational Implications in a Future U.S.-China Conflict: Initial Observations from the Camp(ai)gn Wargame` | `skipped` | `duplicate_existing` |
+
+结论：
+
+- RAND 正式 `pilot_crawl` 链路已验证生效。
+- 本轮 `saved_count=0` 是去重逻辑按预期工作，不是解析或策略失败。
+- 后续可将 RAND 纳入常规小批量试运行观察，继续限制每次最多新增 1 篇并要求前端人工复核。
+
+### 2026-10-01 Carnegie PDF 识别修复与只读复核
+
+背景：
+
+- 2026-09-27 只读审计中，Carnegie 只召回 `American Power: A View from China` 网页，未发现 PDF，暂不进入试写。
+- 本轮重新审计时，Carnegie 官网可召回涉华核议题长报告，但初始结果为网页长文，提示 PDF 链接识别仍需修复。
+
+问题定位：
+
+- 样本页面存在 `Full Text (PDF)` 链接：
+  `https://assets.carnegieendowment.org/files/Zhao_Nuclear%20Knot.pdf`
+- `extract_report_pdf_url` 已给 `full text` 计分，但 `has_report_intent` 未包含 `full text`，导致该 PDF 被过滤。
+- PDF 直链验证结果为 39 页、38 个有效文本页，正文约 117,144 字符，符合 20 页 PDF 门槛。
+
+代码修复：
+
+- `extract_report_pdf_url` 将 `full text` 纳入明确报告 PDF 意图。
+- 仍要求目标链接本身包含 `.pdf`，避免把正文中的普通外部 `Full Text` 链接误判为报告 PDF。
+- 新增 `tests/test_content_extractor.py` 覆盖：
+  - `Full Text (PDF)` 链接可被识别；
+  - 非 PDF 的 `Full Text` 链接不会被误判。
+
+修复后只读复核命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.audit_source_documents --keys carnegie --max-candidates 5 --discovery-timeout 90 --document-timeout 120
+```
+
+运行结果：
+
+| 来源 | rollout 状态 | 原始候选 | 去重候选 | 检查候选 | 文档通过 | 文档失败 | 结论 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Carnegie Endowment | `standard_review` | 1 | 1 | 1 | 1 | 0 | PDF 识别修复后，样本符合 20 页长报告门槛 |
+
+抽样明细：
+
+| 标题 | 结果 | 文档形态 | 页数 | 说明 |
+| --- | --- | --- | ---: | --- |
+| `Untangling the Nuclear Knot: A Constructive Agenda for Managing China's Nuclear Relations with the United States and Its Allies` | 通过 | PDF | 39 | PDF 可下载，文本约 117,144 字符 |
+
+验证：
+
+```powershell
+cd backend
+poetry run pytest tests/test_content_extractor.py tests/test_report_document_service.py
+poetry run ruff check app/services/crawler/content_extractor.py tests/test_content_extractor.py
+```
+
+结果：
+
+- `tests/test_content_extractor.py tests/test_report_document_service.py`：8 passed。
+- `ruff check`：All checks passed。
+
+建议：
+
+- Carnegie 继续保持 `standard_review`，暂不升级。
+- 后续已完成一次受控试写、AI 生成和人工复核通过。
+- 是否将 Carnegie 升级为 `pilot_crawl` 仍需单独确认。
+
+### 2026-10-01 Carnegie 受控试写
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys carnegie --allow-standard-review --max-saved 1 --max-candidates 5 --ai-status skipped
+```
+
+运行结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | AI 状态 | 通知 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Carnegie Endowment | 8 | 726 | 1 | 1 | 入库 `skipped`；后续 `success` | 未开启 |
+
+新增报告：
+
+| report_id | 标题 | 页数 | 非空页 | 正文长度 | 文档形态 | review 状态 | 判断 |
+| ---: | --- | ---: | ---: | ---: | --- | --- | --- |
+| 440 | `Untangling the Nuclear Knot: A Constructive Agenda for Managing China's Nuclear Relations with the United States and Its Allies` | 39 | 38 | 117,144 | PDF | `approved` | PDF 与正文抽取合格，主题显性涉华，AI 成果已通过复核 |
+
+内容抽查：
+
+- 标题无替换乱码，正文无替换乱码。
+- 正文开头包含封面、标题、作者、目录；正文尾部包含注释与参考文献。
+- 正文中 `China` 约 250 次，`nuclear` 约 404 次，主题相关性强。
+- PDF 链接为 `https://assets.carnegieendowment.org/files/Zhao_Nuclear%20Knot.pdf`。
+
+AI 与人工复核：
+
+- 已对 report 440 触发 AI 生成，48 个分块全部完成，失败 0 个。
+- 生成全文翻译约 39,734 字符，主要观点约 1,577 字符，深层研判约 2,347 字符。
+- 主要观点包含 4 个分论点，深层研判包含 5 个分论点，导出 Markdown 和 Word 检查通过。
+- report 440 已标记为 `approved`，复核事件 id 49；复核意见记录参考文献、URL 和机构地址保留英文较多，可后续人工润色，但不影响本轮自动化流程验收。
+
+质量结论：
+
+- Carnegie 受控试写成功，证明修复后的 PDF 识别和正文抽取链路可用于正式长报告。
+- Carnegie 已完成“只读复核 -> 受控试写 -> AI 生成 -> 人工通过”的完整闭环。
+- 代码 rollout 已升级为 `pilot_crawl`，文档策略保持 `pdf_20_page_required`。
+- 升级后仍建议保持每次最多新增 1 篇和前端人工复核，不扩大抓取规模。
+
+### 2026-10-01 Carnegie pilot_crawl 正式试抓
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys carnegie --max-saved 1 --max-candidates 5 --ai-status skipped
+```
+
+运行结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | 跳过原因 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Carnegie Endowment | 8 | 727 | 1 | 0 | 唯一候选已作为 report 440 入库，按 `duplicate_existing` 跳过 |
+
+判断：
+
+- Carnegie 已能不带 `--allow-standard-review` 通过 `pilot_crawl` 准入校验并完成正式试抓。
+- 升级后策略确认为 `pilot_crawl` + `pdf_20_page_required`。
+- 本轮没有新增报告并非异常，而是去重逻辑按预期生效。
+- 后续仍保持每次最多新增 1 篇、AI 后前端人工复核的保守节奏。
+
+### 2026-10-01 Atlantic Council website 解析器修复与只读复核
+
+背景：
+
+- 2026-09-27 老师重点名单只读审计中，Atlantic Council website 来源缺少专用解析器，主审计返回 `discovery_error`。
+- RSS 可返回较多候选，但混有新闻、博客、活动、快评和转载信息，不适合直接进入正式报告库。
+- 本轮目标是先修复 website 报告入口解析与文档提取，不写数据库、不触发 AI、不升级 rollout。
+
+处理：
+
+- 已将 Atlantic Council 接入 `CoreSiteConfig` 通用解析器。
+- 发现入口包含：
+  - `https://www.atlanticcouncil.org/region/china/`
+  - `https://www.atlanticcouncil.org/in-depth-research-reports/`
+  - `https://www.atlanticcouncil.org/content-series/atlantic-council-strategy-paper-series/`
+- 候选 URL 限定为：
+  - `/in-depth-research-reports/report/`
+  - `/in-depth-research-reports/issue-brief/`
+  - `/content-series/atlantic-council-strategy-paper-series/`
+- 新增单元测试覆盖中国专题页报告卡片解析，以及普通报告列表对无涉华信号候选的过滤。
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.audit_source_documents --keys atlantic_council --max-candidates 5 --discovery-timeout 90 --document-timeout 120
+```
+
+运行结果：
+
+| 来源 | key | rollout 状态 | 原始候选 | 去重候选 | 检查候选 | 文档通过 | 文档失败 | 文档策略 |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Atlantic Council | `atlantic_council` | `standard_review` | 2 | 2 | 2 | 1 | 1 | `pdf_20_page_required` |
+
+抽样明细：
+
+| 标题 | 文档结果 | 文档形态 | 页数 | 正文长度 | 说明 |
+| --- | --- | --- | ---: | ---: | --- |
+| `Technology and the Global South: A US strategy for competitiveness` | 未通过 | 网页长报告 | - | - | 页面未发现 PDF 链接，按当前 PDF 策略拒绝 |
+| `Building a multilateral cognitive warfare defense network: A collaborative framework for the United States, Japan, and Taiwan` | 通过 | PDF | 24 | 76,376 | PDF 链接可识别并成功抽取正文 |
+
+质量结论：
+
+- Atlantic Council website 解析器已修复，主审计状态从 `discovery_error` 变为 `ok`。
+- 当前至少已有 1 篇 20 页以上 PDF 样本通过，说明报告页 PDF 链接识别和正文抽取链路可用。
+- Atlantic Council 继续保持 `standard_review`，不直接升级。
+- 是否允许无 PDF 的网页长报告作为 `web_article` 入库需单独确认；未确认前继续保持 `pdf_20_page_required`。
+- 后续已执行一次 `--allow-standard-review --max-saved 1 --max-candidates 5 --ai-status skipped` 受控试写，优先验证通过的 PDF 样本。
+
+### 2026-10-01 Atlantic Council 受控试写
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys atlantic_council --allow-standard-review --max-saved 1 --max-candidates 5 --ai-status skipped
+```
+
+运行结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | AI 状态 | 通知 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Atlantic Council | 9 | 728 | 2 | 1 | 入库 `skipped`；后续 `success` | 未开启 |
+
+新增报告：
+
+| report_id | 标题 | 页数 | 非空页 | 正文长度 | 文档形态 | review 状态 | 判断 |
+| ---: | --- | ---: | ---: | ---: | --- | --- | --- |
+| 441 | `Building a multilateral cognitive warfare defense network: A collaborative framework for the United States, Japan, and Taiwan` | 24 | 24 | 76,376 | PDF | `approved` | PDF 与正文抽取合格，AI 成果已通过复核 |
+
+跳过候选：
+
+| 标题 | 跳过原因 |
+| --- | --- |
+| `Technology and the Global South: A US strategy for competitiveness` | 页面未发现 PDF 链接；按当前 `pdf_20_page_required` 策略拒绝 |
+
+内容抽查：
+
+- 正文无替换乱码。
+- 正文中 `China` 约 68 次，`Chinese` 约 29 次，`Taiwan` 约 143 次，`Japan` 约 126 次，`cognitive` 约 75 次，主题相关性较强。
+- PDF 链接为 `https://www.atlanticcouncil.org/wp-content/uploads/2026/09/Building-a-multilateral-cognitive-warfare-defense-network-A-collaborative-framework-for-the-United-States-Japan-and-Taiwan.pdf`。
+
+AI 生成：
+
+- 已对 report 441 触发 AI 生成，31 个分块全部完成，失败 0 个。
+- 生成全文翻译约 28,128 字符，主要观点约 1,614 字符，深层研判约 2,196 字符。
+- 主要观点包含 4 个分论点，深层研判包含 5 个分论点，导出 Markdown 和 Word 检查通过。
+- report 441 已标记为 `approved`，复核事件 id 50。
+- 复核意见记录报告主题涉中美日台认知战防御网络，涉华相关性明确；翻译术语后续可人工润色，但不影响本轮自动化流程验收。
+
+质量结论：
+
+- Atlantic Council 受控试写成功，证明 website 解析器、PDF 链接识别和正文抽取链路可用于正式长报告。
+- Atlantic Council 已完成“解析器修复 -> 只读复核 -> 受控试写 -> AI 生成 -> 人工通过”的完整闭环。
+- Atlantic Council 继续保持 `standard_review`，不直接升级。
+- 第二次受控试写已执行但无新增，说明当前发现入口下可保存 PDF 样本不足，暂不建议直接升级为 `pilot_crawl`。
+- 是否允许无 PDF 的网页长报告作为 `web_article` 入库仍需单独确认。
+
+### 2026-10-01 Atlantic Council 第二次受控试写
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys atlantic_council --allow-standard-review --max-saved 1 --max-candidates 10 --ai-status skipped
+```
+
+运行结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | 跳过原因 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Atlantic Council | 9 | 729 | 2 | 0 | report 441 已入库重复 1 条；无 PDF 网页长报告失败 1 条 |
+
+候选结果：
+
+| 标题 | 结果 |
+| --- | --- |
+| `Building a multilateral cognitive warfare defense network: A collaborative framework for the United States, Japan, and Taiwan` | 已作为 report 441 入库，按 `duplicate_existing` 跳过 |
+| `Technology and the Global South: A US strategy for competitiveness` | 页面未发现 PDF 链接，按当前 `pdf_20_page_required` 策略拒绝 |
+
+质量结论：
+
+- 第二次受控试写验证了 Atlantic Council 的去重和 PDF 门槛仍按预期生效。
+- 试写前后 `source_id=9` 报告清单均只有 report 441，没有误入库。
+- 当前解析入口下不足以产生第二篇可保存 PDF 样本。
+- 下一步应优先扩展 Atlantic Council PDF 报告发现入口，或单独确认是否允许无 PDF 的网页长报告按 `web_article` 入库。
+
+### 2026-10-01 Atlantic Council PDF 发现入口扩展
+
+处理：
+
+- 新增 `Global China Hub publications` 入口。
+- 新增 `content-type/in-depth-research-reports` 入口及已验证能产生涉华 PDF 样本的分页。
+- Atlantic Council 候选改为要求标题或 URL 自身具备 China / Chinese / Taiwan / East Asia / Northeast Asia 等涉华或周边地区信号，避免只因列表页上下文混入无关 PDF。
+- 新增测试覆盖：
+  - `East Asia` / `Northeast Asia` 作为周边地区信号；
+  - `Global China Hub` 报告卡片解析；
+  - Atlantic Council 配置包含已验证的 PDF 发现入口。
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.audit_source_documents --keys atlantic_council --max-candidates 10 --discovery-timeout 120 --document-timeout 150
+```
+
+运行结果：
+
+| 来源 | key | rollout 状态 | 原始候选 | 去重候选 | 检查候选 | 文档通过 | 文档失败 | 文档策略 |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Atlantic Council | `atlantic_council` | `standard_review` | 8 | 8 | 8 | 3 | 5 | `pdf_20_page_required` |
+
+通过样本：
+
+| 标题 | 文档形态 | 页数 | 正文长度 | 说明 |
+| --- | --- | ---: | ---: | --- |
+| `Building a multilateral cognitive warfare defense network: A collaborative framework for the United States, Japan, and Taiwan` | PDF | 24 | 76,376 | 已入库为 report 441 |
+| `Preparing for and countering limited nuclear attacks in East Asia: Guardian Tiger III` | PDF | 44 | 141,021 | 新增可试写样本 |
+| `Balancing openness and control: Cross-border health data and AI governance in China` | PDF | 38 | 178,890 | 新增可试写样本 |
+
+主要失败样本：
+
+| 标题 | 原因 |
+| --- | --- |
+| `Beijing pressures Taiwan’s remaining diplomatic partners. Here’s what the US should do in response` | 页面未发现 PDF 链接 |
+| `After Maduro: Latin America’s policy community reassesses the US-China balance` | 页面未发现 PDF 链接 |
+| `Chinese mining in West Africa: Responding to the environmental and social impacts` | PDF 10 页，低于 20 页门槛 |
+| `The case for a US Northeast Asia Command` | 页面未发现 PDF 链接 |
+| `To stop Chinese dual-use battery dominance, the United States and South Korea need to team up` | 页面未发现 PDF 链接 |
+
+质量结论：
+
+- 扩展后的发现入口已经能提供第二篇和第三篇可保存 PDF 样本。
+- 严格过滤后不再保留标题和 URL 均无涉华/周边信号的 `Financing the end of the digital divide`。
+- Atlantic Council 继续保持 `standard_review`，不直接升级。
+- 后续已执行一次扩展入口后的受控试写，新增 report 442。
+- 是否允许无 PDF 的网页长报告作为 `web_article` 入库仍需单独确认。
+
+### 2026-10-01 Atlantic Council 扩展入口后受控试写
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys atlantic_council --allow-standard-review --max-saved 1 --max-candidates 10 --ai-status skipped
+```
+
+运行结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | AI 状态 | 通知 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Atlantic Council | 9 | 730 | 8 | 1 | `skipped` | 未开启 |
+
+新增报告：
+
+| report_id | 标题 | 页数 | 非空页 | 正文长度 | 文档形态 | review 状态 | 判断 |
+| ---: | --- | ---: | ---: | ---: | --- | --- | --- |
+| 442 | `Balancing openness and control: Cross-border health data and AI governance in China` | 38 | 38 | 178,890 | PDF | `approved` | PDF 与正文抽取合格，主题显性涉华，AI 成果已通过复核 |
+
+跳过候选：
+
+| 标题 | 结果 |
+| --- | --- |
+| `Building a multilateral cognitive warfare defense network: A collaborative framework for the United States, Japan, and Taiwan` | 已作为 report 441 入库，按 `duplicate_existing` 跳过 |
+| `Preparing for and countering limited nuclear attacks in East Asia: Guardian Tiger III` | 已作为历史 report 344 入库，按 `duplicate_existing` 跳过 |
+| 其他 3 条候选 | 页面未发现 PDF 或 PDF 低于 20 页门槛 |
+
+内容抽查：
+
+- 正文无替换乱码。
+- 正文中 `China` 约 432 次，`Chinese` 约 56 次，`AI` / `artificial intelligence` 约 171 次，`data` 约 763 次，`health` 约 256 次，主题相关性强。
+- PDF 链接为 `https://www.atlanticcouncil.org/wp-content/uploads/2026/06/cross-border-health-data-ai-governance-china.pdf`。
+
+质量结论：
+
+- 扩展入口后的受控试写成功，新增样本符合 20 页 PDF 门槛。
+- Atlantic Council 继续保持 `standard_review`，不直接升级。
+- 后续已按用户授权触发 report 442 AI 生成并完成前端复核，已标记为 `approved`。
+- Guardian Tiger III 已在历史库中存在；后续已单独复核 report 344 并标记为 `approved`。
+
+### 2026-10-01 Atlantic Council report 442 AI 生成
+
+执行说明：
+
+- 已获得用户明确授权：将 report 442 全文发送给当前后端配置的 LLM 服务进行 AI 生成。
+- 生成前已备份 report 442 数据库快照和相关文档到 `.codex-backups/step23-report442-ai-20261001-190000/`。
+- 采用项目现有分块链路：`prepare_report_ai_chunks` -> `run_report_ai_chunk` -> `run_report_ai_finalization`。
+
+运行结果：
+
+| report_id | AI 分块 | 分块结果 | AI 状态 | review 状态 | 生成时间 |
+| ---: | ---: | --- | --- | --- | --- |
+| 442 | 73 | 73 个成功，0 个失败 | `success` | `approved` | `2026-10-01 10:10:06` |
+
+交付物质量：
+
+| 字段 | 长度 | 分论点 | 判断 |
+| --- | ---: | ---: | --- |
+| 全文翻译稿 | 70,107 字符 | - | 已生成，前端复核通过 |
+| 主要观点 | 1,697 字符 | 4 | 符合 1500-2000 字、4 个及以上分论点口径 |
+| 深层研判 | 2,088 字符 | 5 | 符合 2000-2500 字、4 个及以上分论点口径 |
+
+异常与恢复：
+
+- `chunk_id=3491` 普通重试后仍因译文长度不足失败。
+- 检查该分块后确认其内容为正文加脚注，约 2,983 个字符，不是乱码或无关文本。
+- 后续使用同一 LLM 服务按“逐段完整翻译并保留脚注、链接”的严格提示恢复该单块，恢复译文约 1,511 字符。
+- 恢复后整篇 finalizer 成功，Markdown、Word 和质量检查文件已导出到 `.codex-backups/step23-report442-ai-20261001-190000/`。
+
+质量结论：
+
+- 后续已完成前端复核并标记为 `approved`，详见下一节。
+
+### 2026-10-01 Atlantic Council report 442 前端复核通过
+
+复核结果：
+
+| 检查项 | 结果 |
+| --- | --- |
+| 前端报告页 | `/reports?report_id=442` 返回 200 |
+| 详情接口 | report 442 可读取，`ai_status=success` |
+| 列表检索 | `keyword=442` 可检索到 1 条 |
+| PDF 元数据 | 38 页，38 个非空页，官方 PDF 链接 |
+| AI 进度 | 73 个分块全部完成，失败 0 个 |
+| Markdown 导出 | 200，包含全文翻译稿、主要观点、深层研判 |
+| Word 导出 | 200，导出文件约 178,097 字节 |
+
+批准记录：
+
+- 已将 report 442 的复核状态从 `pending_review` 更新为 `approved`。
+- 复核事件 id 51，复核人 `admin@thinktank.com`。
+- 复核意见记录：报告详情接口、报告列表检索、PDF 元数据、正文完整性、AI 翻译稿、主要观点、深层研判及 Markdown/Word 导出均已检查；主要观点 1,697 字符/4 个分论点，深层研判 2,088 字符/5 个分论点；仍建议后续人工细读术语和脚注翻译。
+- 批准前后快照与复核检查结果已保存至 `.codex-backups/step24-report442-review-approve-20261001-191500/`。
+
+质量结论：
+
+- report 442 已完成“扩展入口 -> 受控试写 -> AI 生成 -> 前端复核通过”的完整闭环。
+- 后续已按用户确认将 Atlantic Council 升级为 `pilot_crawl`，详见下一节。
+
+### 2026-10-01 Atlantic Council 升级为 pilot_crawl
+
+处理：
+
+| 来源 | 原 rollout | 新 rollout | 文档策略 | 运行节奏 |
+| --- | --- | --- | --- | --- |
+| Atlantic Council | `standard_review` | `pilot_crawl` | `pdf_20_page_required` | 每次最多新增 1 篇，AI 成功后前端人工复核 |
+
+升级依据：
+
+- report 441 已完成“解析器修复 -> 只读复核 -> 受控试写 -> AI 生成 -> 前端复核通过”的完整闭环。
+- report 442 已完成“扩展入口 -> 受控试写 -> AI 生成 -> 前端复核通过”的完整闭环。
+- 扩展后的 PDF 发现入口能提供 20 页以上、主题显性涉华或周边地区相关的长报告样本。
+- 代码策略已将 `atlantic_council` 加入 `PILOT_CRAWL_KEYS`；文档策略继续保持 `pdf_20_page_required`，不放开无 PDF 网页长报告入库。
+
+质量结论：
+
+- Atlantic Council 已满足进入保守 `pilot_crawl` 的最低样本闭环要求。
+- 升级后仍应重点观察重复入库、PDF 获取失败、短 PDF 跳过和无 PDF 网页报告跳过情况。
+- 后续不扩大单次抓取规模，仍保持每次最多新增 1 篇和人工复核。
+
+### 2026-10-01 Atlantic Council pilot_crawl 正式试抓
+
+执行命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys atlantic_council --max-saved 1 --max-candidates 10 --ai-status skipped
+```
+
+运行结果：
+
+| 来源 | source_id | crawl_run_id | 检查候选 | 新增入库 | AI 状态 | 说明 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Atlantic Council | 9 | 733 | 8 | 0 | `skipped` | 未使用 `--allow-standard-review`，策略守卫已放行 |
+
+候选处理：
+
+| 类型 | 数量 | 说明 |
+| --- | ---: | --- |
+| 已入库重复 | 3 | 包括 report 441、report 442 和历史 report 344 对应报告 |
+| PDF 获取/页数/文本检查失败 | 5 | 页面未发现 PDF 或 PDF 低于 20 页门槛 |
+| 新增入库 | 0 | 去重与 PDF 门槛按预期生效 |
+
+质量结论：
+
+- Atlantic Council 已能不带 `--allow-standard-review` 通过 `pilot_crawl` 准入校验并完成正式试抓。
+- 升级后策略确认为 `pilot_crawl` + `pdf_20_page_required`。
+- 后续仍保持每次最多新增 1 篇和人工复核，重点观察重复入库、PDF 获取失败和短 PDF 跳过原因。
+
+### 2026-10-01 Atlantic Council report 344 前端复核通过
+
+复核对象：
+
+| report_id | 标题 | 页数 | 非空页 | 正文长度 | 文档形态 | review 状态 |
+| ---: | --- | ---: | ---: | ---: | --- | --- |
+| 344 | `Preparing for and countering limited nuclear attacks in East Asia: Guardian Tiger III` | 44 | 44 | 141,021 | PDF | `approved` |
+
+复核结果：
+
+| 检查项 | 结果 |
+| --- | --- |
+| 前端报告页 | `/reports?report_id=344` 返回 200 |
+| 详情接口 | report 344 可读取，`ai_status=success` |
+| 列表检索 | `keyword=344` 可检索到 1 条 |
+| PDF 元数据 | 44 页，44 个非空页，官方 PDF 链接 |
+| AI 进度 | 38 个分块全部完成，失败 0 个 |
+| Markdown 导出 | 200，包含全文翻译稿、主要观点、深层研判 |
+| Word 导出 | 200，导出文件约 155,045 字节 |
+
+交付物质量：
+
+| 字段 | 长度 | 分论点 | 判断 |
+| --- | ---: | ---: | --- |
+| 全文翻译稿 | 54,002 字符 | - | 已生成，前端复核通过 |
+| 主要观点 | 1,688 字符 | 4 | 符合 1500-2000 字和 4 个及以上分论点口径 |
+| 深层研判 | 2,070 字符 | 4 | 符合 2000-2500 字和 4 个及以上分论点口径 |
+
+批准记录：
+
+- 已将 report 344 的复核状态从 `pending_review` 更新为 `approved`。
+- 复核事件 id 52，复核人 `admin@thinktank.com`。
+- 复核意见记录：Guardian Tiger III PDF 元数据、正文完整性、AI 分块进度、全文翻译稿、主要观点、深层研判及 Markdown/Word 导出均已检查；报告主题为东亚有限核攻击准备与应对，涉及中国、朝鲜半岛、日本、美国延伸威慑等区域安全议题，可纳入涉华及周边安全研究库。
+- 批准前后快照与复核检查结果已保存至 `.codex-backups/step26-report344-review-approve-20261001-213000/`。
+
+质量结论：
+
+- report 344 已完成历史样本补复核。
+- Atlantic Council 当前已有 report 344、441、442 三篇复核通过样本，后续仍保持 `pilot_crawl` + `pdf_20_page_required`，每次最多新增 1 篇并人工复核。
+
+### 2026-10-01 Atlantic Council 无 PDF 候选发现阶段预检
+
+处理内容：
+
+- 为 Atlantic Council website 发现链路增加详情页 PDF 链接预检。
+- 预检只判断报告详情页是否存在 PDF 链接，不替代最终 PDF 下载、正文抽取和 20 页门槛。
+- 对预检确认无 PDF 的候选，直接在候选表中标记为 `未发现 PDF 链接`，错误摘要记录 `发现阶段预检：报告详情页中未发现 PDF 链接。`
+- 对预检发现 PDF 链接的候选，先保存候选 `pdf_url`，随后仍进入正式文档检查；短 PDF 继续由 `PDF 页数不足` 规则识别。
+
+验证命令：
+
+```powershell
+cd backend
+poetry run python -m app.scripts.pilot_crawl_sources --keys atlantic_council --max-saved 1 --max-candidates 8 --ai-status skipped
+```
+
+验证结果：
+
+| 来源 | source_id | crawl_run_id | 发现候选 | 新增入库 | AI 状态 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Atlantic Council | 9 | 735 | 8 | 0 | `skipped` |
+
+候选处理：
+
+| 类型 | 数量 | 说明 |
+| --- | ---: | --- |
+| 已入库重复 | 3 | 预检保留 PDF 链接，随后按已入库重复跳过 |
+| 未发现 PDF 链接 | 4 | 发现阶段预检确认详情页无 PDF，未进入 PDF 下载/抽取 |
+| PDF 页数不足 | 1 | 预检发现 PDF 链接，正式文档检查识别为 10 页，低于 20 页门槛 |
+
+质量结论：
+
+- Atlantic Council 候选展示已从笼统 `PDF 获取或页数/文本检查失败` 拆分为可解释的无 PDF、短 PDF 和重复候选。
+- 预检降低了无 PDF 页面进入后续 PDF 下载/抽取链路造成的噪声，但仍保留候选记录，便于老师复查来源质量。
+- `pdf_20_page_required` 文档策略保持不变，不放开无 PDF 网页长文入库。
+
 ## 下一步建议
 
-1. Brookings、CFR、CSIS、PIIE、AEI 已完成历史样本清理和阶段验收，继续维持每次最多新增 1 篇的小批量试运行。
+1. Brookings、Carnegie、CFR、CSIS、PIIE、AEI 已完成历史样本清理或阶段验收，继续维持每次最多新增 1 篇的小批量试运行。
 2. 新增样本继续坚持 AI 成功后前端人工复核；未通过样本进入 `needs_rerun`、补抓或 `rejected`，不得直接放大自动化规模。
 3. CSIS 只保留 `/analysis` 主入口，RSS 旧活动页来源和重复 website 来源均不再参与试运行。
 4. AEI 继续保留 `web_article_allowed` 特例，但要重点检查转载页、导流页、原始出处和正文长度。
 5. Heritage、CAP、Cato 在找到稳定公开入口前保持 `blocked`，不进入自动入库试运行。
-6. RAND 修复后只读复审已通过，可进行第二次受控人工试写；通过前仍不升级。
-7. Carnegie 和 Atlantic Council 先修解析器/文档提取，不进入试写。
+6. RAND 第二次受控试写、AI 生成与人工复核已完成，report 439 已通过；正式 `pilot_crawl` 试抓已通过策略守卫，本轮候选均因重复被跳过；后续仍保持每次最多新增 1 篇和人工复核。
+7. Carnegie 已修复 `Full Text (PDF)` 识别并完成受控试写、AI 生成、人工复核通过和正式 `pilot_crawl` 试抓；Atlantic Council 已扩展 PDF 发现入口，完成 report 344、441、442 三篇复核通过样本，并增加无 PDF 候选发现阶段预检；后续仍保持每次最多新增 1 篇和人工复核。
 8. 后续新增老师重点名单来源仍按 `docs/source-onboarding-playbook.md` 的“只读审计 -> 小样本复核 -> pilot_crawl”流程执行。

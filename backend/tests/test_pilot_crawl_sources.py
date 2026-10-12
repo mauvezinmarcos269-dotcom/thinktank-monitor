@@ -18,10 +18,14 @@ def test_ensure_pilot_allowed_accepts_current_pilot_sources() -> None:
     ensure_pilot_allowed(
         [
             "aei",
+            "atlantic_council",
             "brookings",
+            "carnegie",
             "cfr",
             "csis",
+            "ecfr",
             "piie",
+            "rand",
         ]
     )
 

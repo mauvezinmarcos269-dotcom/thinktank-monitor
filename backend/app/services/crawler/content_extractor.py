@@ -75,6 +75,7 @@ def extract_report_pdf_url(
             or "download" == link_text
             or "read the full report" in link_text
             or "full report" in link_text
+            or "full text" in link_text
             or "report pdf" in link_text
         )
 

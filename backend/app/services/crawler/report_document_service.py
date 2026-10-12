@@ -32,6 +32,14 @@ class ReportDocumentResult:
     content_kind: str = ReportContentKind.pdf.value
 
 
+class ReportDocumentValidationError(ValueError):
+    """文档已完成提取，但未通过入库要求。"""
+
+    def __init__(self, message: str, *, document: ReportDocumentResult) -> None:
+        super().__init__(message)
+        self.document = document
+
+
 def _looks_like_pdf(resource: FetchResult) -> bool:
     """
     判断 HTTP 响应是否为 PDF。
@@ -163,16 +171,27 @@ async def fetch_report_document(
             pdf_resource.content
         )
 
+        document = ReportDocumentResult(
+            page_url=page_url,
+            pdf_url=pdf_url,
+            text=extraction.text,
+            page_count=extraction.page_count,
+            non_empty_page_count=extraction.non_empty_page_count,
+            pdf_byte_length=len(pdf_resource.content),
+        )
+
         if extraction.page_count < minimum_page_count:
-            raise ValueError(
+            raise ReportDocumentValidationError(
                 "报告页数不足："
                 f"{extraction.page_count} 页，"
-                f"要求至少 {minimum_page_count} 页。"
+                f"要求至少 {minimum_page_count} 页。",
+                document=document,
             )
 
         if not extraction.text:
-            raise ValueError(
-                "PDF 未提取出有效文本。"
+            raise ReportDocumentValidationError(
+                "PDF 未提取出有效文本。",
+                document=document,
             )
     except ValueError as exc:
         extraction_error = exc
@@ -190,15 +209,4 @@ async def fetch_report_document(
     if extraction_error is not None:
         raise extraction_error
 
-    return ReportDocumentResult(
-        page_url=page_url,
-        pdf_url=pdf_url,
-        text=extraction.text,
-        page_count=extraction.page_count,
-        non_empty_page_count=(
-            extraction.non_empty_page_count
-        ),
-        pdf_byte_length=len(
-            pdf_resource.content
-        ),
-    )
+    return document
