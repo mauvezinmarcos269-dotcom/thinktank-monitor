@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.llm_authorization import LLMNotAuthorized, LLMPermit, report_context
 from app.core.status import AIChunkStatus, AIChunkType, ReportAIStatus
 from app.models.report import Report
 from app.models.report_ai_chunk import ReportAIChunk
+from app.services.llm_authorization_service import require_authorization
 from app.utils.datetime import utc_now_naive
 
 DEFAULT_MAX_CHUNK_RETRIES = 3
@@ -22,6 +25,7 @@ class ReportAIFinalizationInput:
     analysis_notes: str
     summary: str | None = None
     commentary: str | None = None
+    authorization: LLMPermit | None = None
 
 
 @dataclass(frozen=True)
@@ -204,6 +208,11 @@ async def queue_report_ai_finalization(
             report_id=report_id,
             status="not_found",
         )
+
+    try:
+        await require_authorization(db, report_context(report))
+    except LLMNotAuthorized as exc:
+        return ReportAIFinalizationQueueResult(report_id, "blocked", str(exc))
 
     if report.ai_status in {
         ReportAIStatus.finalize_queued.value,
@@ -491,6 +500,8 @@ async def claim_report_ai_finalization(
             status="not_found",
         )
 
+    permit = await require_authorization(db, report_context(report))
+
     if report.ai_status == ReportAIStatus.success.value:
         return ReportAIFinalizationClaim(
             status="skipped",
@@ -560,6 +571,10 @@ async def claim_report_ai_finalization(
             status="waiting",
         )
 
+    content_hash = hashlib.sha256(report.content.encode("utf-8")).hexdigest()
+    if any(chunk.report_content_hash != content_hash for chunk in chunks):
+        raise LLMNotAuthorized("分块来自旧正文版本，不能将旧笔记用于当前报告外发。")
+
     # 所有状态 success 后，再严格验证两类 chunk
     # 是否数量完整、索引连续、output_text 非空。
     translation = _merge_translation_chunks(
@@ -590,6 +605,7 @@ async def claim_report_ai_finalization(
                 analysis_notes=analysis_notes,
                 summary=report.summary,
                 commentary=report.commentary,
+                authorization=permit,
             )
         ),
     )

@@ -4,6 +4,7 @@ from dataclasses import asdict
 
 from sqlalchemy import select
 
+from app.core.llm_authorization import LLMNotAuthorized
 from app.db.session import AsyncSessionLocal
 from app.models.report_ai_chunk import ReportAIChunk
 from app.services.ai.report_ai_chunk_runner import (
@@ -16,6 +17,7 @@ from app.services.ai.report_ai_finalizer import (
 from app.services.ai.report_ai_finalizer_runner import (
     run_report_ai_finalization,
 )
+from app.services.llm_authorization_service import load_report_permit
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,9 @@ def ai_chunk_task(
             chunk_id
         )
     )
+
+    if result.status == "blocked":
+        return asdict(result)
 
     finalization_status = asyncio.run(
         _maybe_enqueue_report_ai_finalization(
@@ -87,6 +92,11 @@ async def _dispatch_queued_report_ai_finalization(
     不增加 ai_retry_count，
     因为 finalizer 尚未真正执行。
     """
+    try:
+        await load_report_permit(report_id)
+    except LLMNotAuthorized:
+        return "blocked"
+
     try:
         ai_finalize_task.delay(
             report_id

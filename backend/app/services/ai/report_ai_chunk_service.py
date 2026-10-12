@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import SiliconFlowClient
+from app.core.llm_authorization import LLMPermit, report_context
 from app.core.status import AIChunkStatus, AIChunkType
 from app.models.report import Report
 from app.models.report_ai_chunk import ReportAIChunk
@@ -22,6 +23,7 @@ from app.services.ai.report_ai_service import (
     generate_analysis_notes,
     generate_translation,
 )
+from app.services.llm_authorization_service import require_authorization
 from app.utils.datetime import utc_now_naive
 
 
@@ -43,6 +45,7 @@ class AIChunkExecutionInput:
     chunk_count: int
     report_title: str
     content: str
+    authorization: LLMPermit | None = None
 
 
 def _build_chunk_specs(
@@ -175,12 +178,7 @@ async def prepare_report_ai_chunks(
             f"报告正文为空：{report_id}"
         )
 
-    content_hash = (
-        report.content_hash
-        or hashlib.sha256(
-            report.content.encode("utf-8")
-        ).hexdigest()
-    )
+    content_hash = hashlib.sha256(report.content.encode("utf-8")).hexdigest()
 
     specs = build_report_ai_chunk_specs(
         report.content
@@ -469,12 +467,7 @@ async def load_report_ai_chunk_execution_input(
             f"报告正文为空：{report.id}"
         )
 
-    current_content_hash = (
-        report.content_hash
-        or hashlib.sha256(
-            report.content.encode("utf-8")
-        ).hexdigest()
-    )
+    current_content_hash = hashlib.sha256(report.content.encode("utf-8")).hexdigest()
 
     if (
         current_content_hash
@@ -510,6 +503,7 @@ async def load_report_ai_chunk_execution_input(
         chunk_count=chunk.chunk_count,
         report_title=report.title,
         content=chunk_content,
+        authorization=await require_authorization(db, report_context(report)),
     )
 
 

@@ -3,6 +3,7 @@ import logging
 import httpx
 
 from app.core.config import settings
+from app.core.llm_authorization import LLMPermit
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,9 @@ class SiliconFlowClient:
     可以共享底层 HTTP 连接池。
     """
 
-    def __init__(self):
+    def __init__(self, *, authorization: LLMPermit | None = None):
+        self.authorization = authorization
+        self.provider = settings.LLM_PROVIDER
         self.api_key = settings.LLM_API_KEY
         self.base_url = settings.LLM_BASE_URL
         self.model = settings.LLM_MODEL
@@ -106,14 +109,21 @@ class SiliconFlowClient:
                 "type": "json_object"
             }
 
-        logger.info(
-            "Calling SiliconFlow: model=%s, prompt_len=%s, max_tokens=%s",
-            self.model,
-            len(prompt),
-            max_tokens,
-        )
-
         try:
+            from app.services.llm_authorization_service import verify_permit
+
+            await verify_permit(
+                self.authorization,
+                provider=self.provider,
+                endpoint=self.base_url,
+                model=self.model,
+            )
+            logger.info(
+                "Calling SiliconFlow: model=%s, prompt_len=%s, max_tokens=%s",
+                self.model,
+                len(prompt),
+                max_tokens,
+            )
             response = await self.client.post(
                 self.base_url,
                 headers=headers,

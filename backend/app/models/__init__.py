@@ -1,6 +1,7 @@
 from app.models.base import Base as Base
 from app.models.crawl_candidate import CrawlCandidate as CrawlCandidate
 from app.models.crawl_run import CrawlRun as CrawlRun
+from app.models.llm_authorization import LLMAuthorization as LLMAuthorization
 from app.models.notification import Notification as Notification
 from app.models.report import Report as Report
 from app.models.report_ai_chunk import ReportAIChunk as ReportAIChunk
@@ -13,6 +14,7 @@ __all__ = [
     "Base",
     "CrawlCandidate",
     "CrawlRun",
+    "LLMAuthorization",
     "Notification",
     "Report",
     "ReportAIChunk",

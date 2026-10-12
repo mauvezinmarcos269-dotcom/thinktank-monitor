@@ -3,6 +3,7 @@ import asyncio
 import httpx
 
 from app.core.config import settings
+from app.core.llm_authorization import LLMNotAuthorized
 
 DEFAULT_MODELS = (
     "Qwen/Qwen2.5-7B-Instruct",
@@ -13,6 +14,8 @@ DEFAULT_MODELS = (
 
 
 async def check_model(model_name: str) -> None:
+    if not settings.LLM_OUTBOUND_ENABLED:
+        raise LLMNotAuthorized("LLM 外发总开关已关闭；模型连通性探测也不会发送。")
     print()
     print("=" * 70)
     print("MODEL:", model_name)

@@ -5,6 +5,8 @@ from datetime import timedelta
 
 from sqlalchemy import and_, func, or_, select
 
+from app.core.config import settings
+from app.core.llm_authorization import LLMNotAuthorized, report_context
 from app.core.status import (
     AIChunkStatus,
     NotificationEventType,
@@ -27,7 +29,9 @@ from app.services.ai.report_ai_finalizer import (
 from app.services.crawler.report_document_service import (
     fetch_report_document,
 )
+from app.services.llm_authorization_service import authorized_report_ids, require_authorization
 from app.services.notification_service import notification_service
+from app.services.report_error_summary import summarize_report_processing_error
 from app.utils.datetime import utc_now_naive
 from app.workers.celery_app import celery_app
 
@@ -98,6 +102,9 @@ async def _enqueue_ai_chunk_tasks(
     only_report_id 仅用于精确测试，
     正式定时调度时保持 None。
     """
+    if not settings.LLM_OUTBOUND_ENABLED:
+        return []
+
     if report_limit <= 0:
         return []
 
@@ -164,10 +171,17 @@ async def _enqueue_ai_chunk_tasks(
         )
 
     async with AsyncSessionLocal() as db:
+        try:
+            authorized_ids = await authorized_report_ids(db, conditions, report_limit)
+        except LLMNotAuthorized:
+            return []
+        if not authorized_ids:
+            return []
         result = await db.execute(
             select(Report)
             .where(
-                and_(*conditions)
+                and_(*conditions),
+                Report.id.in_(authorized_ids),
             )
             .order_by(Report.id)
             .limit(report_limit)
@@ -200,6 +214,10 @@ async def _enqueue_ai_chunk_tasks(
         )
 
         for report in reports:
+            try:
+                await require_authorization(db, report_context(report))
+            except LLMNotAuthorized:
+                continue
             recovered_report = (
                 await recover_stale_report_ai_finalization(
                     db,
@@ -659,7 +677,11 @@ async def _fetch_report_content_async(
                     db,
                     event_type=NotificationEventType.report_fetch_failed.value,
                     title="报告正文抓取失败",
-                    message=f"{failed_report.title}: {failed_report.crawl_error}",
+                    message=(
+                        f"{failed_report.title}\n\n"
+                        "失败原因："
+                        f"{summarize_report_processing_error(failed_report.crawl_error, operation='fetch')}"
+                    ),
                     report_id=failed_report.id,
                 )
                 await db.commit()

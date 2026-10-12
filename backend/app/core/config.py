@@ -79,6 +79,7 @@ class Settings(BaseSettings):
 
     LLM_PROVIDER: str = "openai_compatible"
     LLM_BASE_URL: str = ""
+    LLM_OUTBOUND_ENABLED: bool = False
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
     LLM_CONNECT_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0)

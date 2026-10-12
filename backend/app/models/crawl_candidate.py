@@ -64,6 +64,9 @@ class CrawlCandidate(Base):
         nullable=True,
     )
 
+    document_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,

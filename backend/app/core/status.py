@@ -63,6 +63,7 @@ class AIChunkStatus(StrEnum):
 
 class CrawlCandidateStatus(StrEnum):
     discovered = "discovered"
+    pending_relevance = "pending_relevance"
     skipped = "skipped"
     saved = "saved"
 
@@ -71,6 +72,7 @@ class CrawlCandidateSkipReason(StrEnum):
     invalid_url = "invalid_url"
     duplicate_in_feed = "duplicate_in_feed"
     duplicate_existing = "duplicate_existing"
+    duplicate_pending = "duplicate_pending"
     document_failed = "document_failed"
     relevance_failed = "relevance_failed"
     non_china_related = "non_china_related"

@@ -168,6 +168,7 @@ async def test_retry_report_ai_resets_review_status_to_pending(
 ) -> None:
     report = SimpleNamespace(
         id=12,
+        title="Authorized report",
         content="report content",
         ai_status=ReportAIStatus.failed.value,
         review_status=ReportReviewStatus.needs_rerun.value,
@@ -211,6 +212,10 @@ async def test_retry_report_ai_resets_review_status_to_pending(
         FakeQueue,
     )
 
+    async def authorized(db, context):
+        assert context.report_id == report.id
+
+    monkeypatch.setattr(reports_api, "require_authorization", authorized)
     response = await reports_api.retry_report_ai(
         report.id,
         FakeDB(),  # type: ignore[arg-type]
@@ -286,6 +291,7 @@ async def test_retry_report_ai_preserves_review_status_when_queue_fails(
 ) -> None:
     report = SimpleNamespace(
         id=13,
+        title="Authorized report",
         content="report content",
         ai_status=ReportAIStatus.failed.value,
         review_status=ReportReviewStatus.needs_rerun.value,
@@ -325,6 +331,10 @@ async def test_retry_report_ai_preserves_review_status_when_queue_fails(
         FakeQueue,
     )
 
+    async def authorized(db, context):
+        assert context.report_id == report.id
+
+    monkeypatch.setattr(reports_api, "require_authorization", authorized)
     with pytest.raises(HTTPException) as exc_info:
         await reports_api.retry_report_ai(
             report.id,

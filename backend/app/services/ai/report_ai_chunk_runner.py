@@ -1,9 +1,12 @@
 import logging
 from dataclasses import dataclass
 
+from app.core.config import settings
 from app.core.llm import SiliconFlowClient
+from app.core.llm_authorization import LLMNotAuthorized
 from app.core.status import AIChunkStatus
 from app.db.session import AsyncSessionLocal
+from app.models.report_ai_chunk import ReportAIChunk
 from app.services.ai.report_ai_chunk_service import (
     claim_report_ai_chunk,
     complete_report_ai_chunk,
@@ -11,6 +14,7 @@ from app.services.ai.report_ai_chunk_service import (
     generate_report_ai_chunk_output,
     load_report_ai_chunk_execution_input,
 )
+from app.utils.datetime import utc_now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,9 @@ async def run_report_ai_chunk(
 
     本函数不负责 Celery 重试调度。
     """
+
+    if not settings.LLM_OUTBOUND_ENABLED:
+        return AIChunkRunResult(chunk_id=chunk_id, status="blocked", error="LLM 外发总开关已关闭。")
 
     # ============================================================
     # 第一阶段：领取任务并准备脱离数据库使用的输入
@@ -81,6 +88,9 @@ async def run_report_ai_chunk(
             # 才正式持久化 processing 状态。
             await db.commit()
 
+        except LLMNotAuthorized as exc:
+            await db.rollback()
+            return AIChunkRunResult(chunk_id=chunk_id, status="blocked", error=str(exc))
         except Exception:
             await db.rollback()
 
@@ -96,7 +106,7 @@ async def run_report_ai_chunk(
     # 第二阶段：数据库 Session 已关闭，只调用 AI
     # ============================================================
     try:
-        async with SiliconFlowClient() as client:
+        async with SiliconFlowClient(authorization=execution_input.authorization) as client:
             output_text = (
                 await generate_report_ai_chunk_output(
                     client,
@@ -104,6 +114,16 @@ async def run_report_ai_chunk(
                 )
             )
 
+    except LLMNotAuthorized as exc:
+        # A revoked permit is not a generation failure and must not consume retries.
+        async with AsyncSessionLocal() as db:
+            chunk = await db.get(ReportAIChunk, chunk_id, with_for_update=True)
+            if chunk is not None and chunk.status == AIChunkStatus.processing.value:
+                chunk.status = AIChunkStatus.pending.value
+                chunk.last_error = str(exc)
+                chunk.updated_at = utc_now_naive()
+                await db.commit()
+        return AIChunkRunResult(chunk_id=chunk_id, status="blocked", error=str(exc))
     except Exception as exc:
         logger.exception(
             "AI chunk generation failed: "

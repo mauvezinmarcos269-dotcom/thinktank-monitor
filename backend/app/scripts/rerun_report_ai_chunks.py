@@ -3,11 +3,13 @@ import asyncio
 import json
 import sys
 
+from app.core.llm_authorization import LLMNotAuthorized
 from app.core.status import AIChunkStatus
 from app.db.session import AsyncSessionLocal
 from app.models.report_ai_chunk import ReportAIChunk
 from app.services.ai.report_ai_chunk_runner import run_report_ai_chunk
 from app.services.ai.report_ai_finalizer_runner import run_report_ai_finalization
+from app.services.llm_authorization_service import load_report_permit
 from app.utils.datetime import utc_now_naive
 
 
@@ -22,6 +24,11 @@ async def reset_chunk_for_retry(
 
         if chunk.status == AIChunkStatus.success.value:
             return "success"
+
+        try:
+            await load_report_permit(chunk.report_id)
+        except LLMNotAuthorized:
+            return "blocked"
 
         chunk.status = AIChunkStatus.failed.value
         chunk.last_error = "Manual chunk rerun requested"
@@ -41,11 +48,11 @@ async def main_async(
     for chunk_id in chunk_ids:
         reset_status = await reset_chunk_for_retry(chunk_id)
 
-        if reset_status == "not_found":
+        if reset_status in {"not_found", "blocked"}:
             results.append(
                 {
                     "chunk_id": chunk_id,
-                    "status": "not_found",
+                    "status": reset_status,
                 }
             )
             continue

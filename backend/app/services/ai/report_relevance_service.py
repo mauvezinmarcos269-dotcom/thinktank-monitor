@@ -4,6 +4,15 @@ import json
 import logging
 
 from app.core.llm import SiliconFlowClient
+from app.core.llm_authorization import (
+    LLMContext,
+    LLMNotAuthorized,
+    LLMScope,
+    candidate_target_key,
+    document_hash,
+)
+from app.db.session import AsyncSessionLocal
+from app.services.llm_authorization_service import require_authorization
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +152,9 @@ def _parse_relevance_result(
 async def evaluate_china_relevance(
     title: str,
     content: str,
+    *,
+    source_id: int | None = None,
+    normalized_url: str | None = None,
 ) -> dict[str, str | bool]:
     """
     判断报告是否属于需要进一步处理的涉华研究。
@@ -154,6 +166,16 @@ async def evaluate_china_relevance(
             "报告正文不能为空"
         )
 
+    if source_id is None or not normalized_url:
+        raise LLMNotAuthorized("涉华判定缺少候选身份，不能外发。")
+    context = LLMContext(
+        LLMScope.relevance_sample,
+        candidate_target_key(source_id, normalized_url),
+        document_hash(title, content),
+    )
+    async with AsyncSessionLocal() as db:
+        permit = await require_authorization(db, context)
+
     sampled_content = _sample_report_content(
         content
     )
@@ -163,7 +185,7 @@ async def evaluate_china_relevance(
         sampled_content,
     )
 
-    async with SiliconFlowClient() as client:
+    async with SiliconFlowClient(authorization=permit) as client:
         raw_result = await client.chat(
             prompt=prompt,
             temperature=0.0,

@@ -5,6 +5,7 @@ import logging
 
 from app.core.config import settings
 from app.core.llm import SiliconFlowClient
+from app.core.llm_authorization import LLMNotAuthorized
 from app.services.ai.report_ai_output import (
     extract_analysis_notes as _extract_analysis_notes,
 )
@@ -225,6 +226,8 @@ async def generate_analysis_notes(
 
             return notes
 
+        except LLMNotAuthorized:
+            raise
         except Exception as exc:
             last_error = exc
 
@@ -319,6 +322,8 @@ async def generate_translation(
 
             return translation
 
+        except LLMNotAuthorized:
+            raise
         except Exception as exc:
             last_error = exc
 
@@ -427,6 +432,8 @@ async def generate_summary_from_notes(
 
             return result["summary"]
 
+        except LLMNotAuthorized:
+            raise
         except Exception as exc:
             last_error = exc
 
@@ -525,6 +532,8 @@ async def generate_commentary_from_notes(
 
             return result["commentary"]
 
+        except LLMNotAuthorized:
+            raise
         except Exception as exc:
             last_error = exc
 

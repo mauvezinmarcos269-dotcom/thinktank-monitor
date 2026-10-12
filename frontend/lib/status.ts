@@ -35,7 +35,11 @@ export type AIChunkStatus =
 
 export type SourceType = 'website' | 'rss' | 'report_library' | 'topic_page';
 
-export type CrawlCandidateStatus = 'discovered' | 'skipped' | 'saved';
+export type CrawlCandidateStatus =
+  | 'discovered'
+  | 'pending_relevance'
+  | 'skipped'
+  | 'saved';
 
 export type SourceHealthStatus =
   | 'healthy'
@@ -130,6 +134,7 @@ export const sourceCrawlStatusLabels: Record<SourceCrawlStatus, string> = {
 
 export const crawlCandidateStatusLabels: Record<CrawlCandidateStatus, string> = {
   discovered: '已发现',
+  pending_relevance: '待授权',
   skipped: '已跳过',
   saved: '已入库',
 };

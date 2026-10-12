@@ -2,26 +2,18 @@
 
 import { type RefObject } from 'react';
 
+import { ProcessingErrorDisclosure } from '@/components/processing-error-disclosure';
 import { type Source, type ThinkTank } from '@/lib/institution';
-import {
-  type AIProgress,
-  type Report,
-  type ReportReviewEvent,
-} from '@/lib/report';
+import { LLMAuthorizationControl } from '@/components/llm-authorization-control';
+import { type AIProgress, type Report, type ReportReviewEvent } from '@/lib/report';
 
 import { AIProgressPanel } from './ai-progress-panel';
 import { ReportActionBar } from './report-action-bar';
 import { ReportContentViewer } from './report-content-viewer';
-import {
-  ReportDetailHeader,
-  type ReportDocumentType,
-} from './report-detail-header';
+import { ReportDetailHeader, type ReportDocumentType } from './report-detail-header';
 import { ReportMetadataGrid } from './report-metadata-grid';
 import { ReportOutcomeSummary } from './report-outcome-summary';
-import {
-  type CopyTarget,
-  type ReportView,
-} from './report-page-utils';
+import { type CopyTarget, type ReportView } from './report-page-utils';
 import { ReportReadingBrief } from './report-reading-brief';
 import { ReviewHistoryPanel } from './review-history-panel';
 
@@ -108,12 +100,7 @@ export function ReportDetailArticle({
 }: ReportDetailArticleProps) {
   return (
     <article className="report-detail">
-      <ReportDetailHeader
-        report={report}
-        documentType={documentType}
-        source={source}
-        thinkTank={thinkTank}
-      />
+      <ReportDetailHeader report={report} documentType={documentType} source={source} thinkTank={thinkTank} />
 
       <ReportReadingBrief report={report} onViewSelect={onViewSelect} />
 
@@ -131,7 +118,7 @@ export function ReportDetailArticle({
       />
 
       {report.crawl_error ? (
-        <p className="message-error">抓取错误：{report.crawl_error}</p>
+        <ProcessingErrorDisclosure error={report.crawl_error} operation="fetch" label="抓取错误" />
       ) : null}
 
       <ReportContentViewer
@@ -184,14 +171,22 @@ export function ReportDetailArticle({
 
         <details className="secondary-details">
           <summary>
+            <span>AI 外发授权</span>
+            <small>按当前文档版本单独控制</small>
+          </summary>
+          {canRetryAI ? (
+            <LLMAuthorizationControl scope="report_generation" targetId={report.id} />
+          ) : (
+            <p className="muted">仅管理员可管理外发授权。</p>
+          )}
+        </details>
+
+        <details className="secondary-details">
+          <summary>
             <span>复核历史</span>
             <small>{reviewHistorySummary}</small>
           </summary>
-          <ReviewHistoryPanel
-            loading={loadingReviewEvents}
-            errorMessage={reviewEventsError}
-            events={reviewEvents}
-          />
+          <ReviewHistoryPanel loading={loadingReviewEvents} errorMessage={reviewEventsError} events={reviewEvents} />
         </details>
 
         <details className="secondary-details">
@@ -199,11 +194,7 @@ export function ReportDetailArticle({
             <span>AI 分块进度</span>
             <small>{aiProgressSummary}</small>
           </summary>
-          <AIProgressPanel
-            loading={loadingProgress}
-            errorMessage={progressError}
-            progress={aiProgress}
-          />
+          <AIProgressPanel loading={loadingProgress} errorMessage={progressError} progress={aiProgress} />
         </details>
       </section>
     </article>

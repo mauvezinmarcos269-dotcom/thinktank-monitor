@@ -1,10 +1,12 @@
 import asyncio
 import hashlib
+import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from app.core.llm_authorization import LLMNotAuthorized
 from app.core.status import (
     CrawlCandidateSkipReason,
     CrawlRunStatus,
@@ -19,11 +21,18 @@ from app.services.ai.report_relevance_service import (
     evaluate_china_relevance,
 )
 from app.services.crawl_candidate_service import (
+    mark_candidate_pending_relevance,
     mark_candidate_saved,
     mark_candidate_skipped,
+    set_candidate_document_metadata,
 )
+from app.services.crawl_lock import crawl_execution_lock
 from app.services.crawl_quality_service import CrawlQualityStats
 from app.services.crawler import source_article_discovery
+from app.services.crawler.candidate_duplicate_service import (
+    build_candidate_duplicate_index,
+    mark_duplicate_candidate,
+)
 from app.services.crawler.candidate_intake import (
     intake_crawl_candidates,
 )
@@ -41,6 +50,8 @@ SOURCE_DISCOVERY_TIMEOUT_SECONDS = 90.0
 REPORT_DOCUMENT_FETCH_TIMEOUT_SECONDS = 90.0
 REPORT_RELEVANCE_TIMEOUT_SECONDS = 60.0
 
+logger = logging.getLogger(__name__)
+
 
 async def _fetch_source_articles(
     source: Source,
@@ -57,7 +68,7 @@ def normalize_url(url: str) -> str | None:
 
 
 def crawl_source(source_id: int) -> dict[str, int | str]:
-    """Celery 同步任务入口：抓取一个 RSS 来源。"""
+    """Celery 同步任务入口：互斥抓取一个来源。"""
     return asyncio.run(_crawl_source_async(source_id))
 
 
@@ -84,7 +95,32 @@ def _ensure_source_rollout_allowed(
         )
 
 
-async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
+def _skipped_source_result(source_id: int, reason: str) -> dict[str, int | str]:
+    return {
+        "status": "skipped",
+        "source_id": source_id,
+        "reason": reason,
+        "found_count": 0,
+        "saved_count": 0,
+    }
+
+
+async def _crawl_source_async(
+    source_id: int,
+    *,
+    only_if_due: bool = False,
+) -> dict[str, int | str]:
+    async with crawl_execution_lock(source_id) as acquired:
+        if not acquired:
+            return _skipped_source_result(source_id, "already_running")
+        return await _crawl_source_locked_async(source_id, only_if_due=only_if_due)
+
+
+async def _crawl_source_locked_async(
+    source_id: int,
+    *,
+    only_if_due: bool,
+) -> dict[str, int | str]:
     run_id: int | None = None
 
     try:
@@ -92,15 +128,21 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
             source = await db.get(Source, source_id)
 
             if source is None:
+                if only_if_due:
+                    return _skipped_source_result(source_id, "source_missing")
                 raise ValueError(f"来源不存在: source_id={source_id}")
 
             if not source.is_active:
+                if only_if_due:
+                    return _skipped_source_result(source_id, "source_disabled")
                 raise ValueError(f"来源已停用: source_id={source_id}")
 
             if source.source_type not in {
                 SourceTypeEnum.rss,
                 SourceTypeEnum.website,
             }:
+                if only_if_due:
+                    return _skipped_source_result(source_id, "unsupported_source_type")
                 raise ValueError(
                     "当前仅支持 RSS 和 website 来源抓取，"
                     f"实际类型为: {source.source_type.value}"
@@ -111,12 +153,35 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                 source.think_tank_id,
             )
 
+            if only_if_due and (
+                think_tank is None
+                or not get_source_rollout_policy(think_tank.key).can_run_pilot_crawl
+            ):
+                return _skipped_source_result(source_id, "rollout_not_allowed")
+
             _ensure_source_rollout_allowed(
                 source=source,
                 think_tank=think_tank,
             )
 
             now = datetime.now(UTC)
+
+            if only_if_due and not _is_source_due_for_crawl(source, now=now):
+                return _skipped_source_result(source_id, "not_due")
+
+            # Acquiring the source lock proves earlier locked executions have ended.
+            await db.execute(
+                update(CrawlRun)
+                .where(
+                    CrawlRun.source_id == source.id,
+                    CrawlRun.status == CrawlRunStatus.running.value,
+                )
+                .values(
+                    status=CrawlRunStatus.failed.value,
+                    error="上次抓取中断，已在获得来源执行锁后恢复。",
+                    finished_at=now.replace(tzinfo=None),
+                )
+            )
 
             crawl_run = CrawlRun(
                 source_id=source.id,
@@ -156,38 +221,25 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
 
             articles_by_url = candidate_intake.articles_by_url
             candidates_by_url = candidate_intake.candidates_by_url
-            normalized_urls = list(articles_by_url)
+            found_count = candidate_intake.unique_candidate_count
 
-            existing_urls: set[str] = set()
-
-            if normalized_urls:
-                result = await db.execute(
-                    select(Report.normalized_url).where(
-                        Report.source_id == source.id,
-                        Report.normalized_url.in_(normalized_urls),
-                    )
-                )
-                existing_urls = {
-                    normalized_url
-                    for normalized_url in result.scalars().all()
-                    if normalized_url is not None
-                }
+            duplicate_index = await build_candidate_duplicate_index(
+                db,
+                candidates=candidates_by_url.values(),
+                exclude_crawl_run_id=run_id,
+            )
 
             saved_count = 0
 
             for normalized_url, article in articles_by_url.items():
                 candidate = candidates_by_url[normalized_url]
 
-                if normalized_url in existing_urls:
-                    mark_candidate_skipped(
-                        candidate,
-                        reason_code=CrawlCandidateSkipReason.duplicate_existing.value,
-                    )
-                    quality_stats.duplicate_existing += 1
-                    quality_stats.add_sample(
-                        "已入库重复",
-                        article["url"],
-                    )
+                if mark_duplicate_candidate(
+                    candidate,
+                    duplicate_kind=duplicate_index.classify(candidate),
+                    quality_stats=quality_stats,
+                    url=article["url"],
+                ):
                     continue
 
                 try:
@@ -209,32 +261,51 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                         reason_code=CrawlCandidateSkipReason.document_failed.value,
                         error=exc,
                     )
-                    quality_stats.document_failed += 1
-                    quality_stats.add_sample(
-                        "PDF 获取或页数/文本检查失败",
+                    quality_stats.add_document_failure_sample(
                         article["url"],
                         exc,
                     )
-                    print(
-                        f"report skipped {article['url']}: {exc}"
+                    logger.warning(
+                        "Report candidate skipped after document fetch "
+                        "failed: source_id=%s crawl_run_id=%s url=%s "
+                        "error=%r",
+                        source.id,
+                        run_id,
+                        article["url"],
+                        exc,
                     )
                     continue
 
                 content = document.text
-                candidate.pdf_url = document.pdf_url
-                candidate.page_count = document.page_count
-                candidate.non_empty_page_count = document.non_empty_page_count
-                candidate.pdf_byte_length = document.pdf_byte_length
-                candidate.content_kind = document.content_kind
+                set_candidate_document_metadata(candidate, document)
+
+                document_duplicate_index = await build_candidate_duplicate_index(
+                    db,
+                    candidates=[candidate],
+                    exclude_crawl_run_id=run_id,
+                )
+                if mark_duplicate_candidate(
+                    candidate,
+                    duplicate_kind=document_duplicate_index.classify(candidate),
+                    quality_stats=quality_stats,
+                    url=article["url"],
+                ):
+                    continue
 
                 try:
                     relevance = await asyncio.wait_for(
                         evaluate_china_relevance(
-                            str(article["title"]),
+                            candidate.title or "",
                             content,
+                            source_id=source.id,
+                            normalized_url=normalized_url,
                         ),
                         timeout=REPORT_RELEVANCE_TIMEOUT_SECONDS,
                     )
+                except LLMNotAuthorized as exc:
+                    mark_candidate_pending_relevance(candidate, error=exc)
+                    quality_stats.pending_relevance += 1
+                    continue
                 except Exception as exc:
                     mark_candidate_skipped(
                         candidate,
@@ -247,9 +318,14 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                         article["url"],
                         exc,
                     )
-                    print(
-                        f"relevance check failed "
-                        f"{article['url']}: {exc}"
+                    logger.warning(
+                        "Report candidate skipped after relevance check "
+                        "failed: source_id=%s crawl_run_id=%s url=%s "
+                        "error=%r",
+                        source.id,
+                        run_id,
+                        article["url"],
+                        exc,
                     )
                     continue
 
@@ -269,11 +345,15 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
                         article["url"],
                         relevance.get("reason"),
                     )
-                    print(
-                        f"report skipped as non-China-related "
-                        f"{article['url']}: "
-                        f"{relevance['relevance']} - "
-                        f"{relevance['reason']}"
+                    logger.info(
+                        "Report candidate skipped as non-China-related: "
+                        "source_id=%s crawl_run_id=%s url=%s relevance=%s "
+                        "reason=%s",
+                        source.id,
+                        run_id,
+                        article["url"],
+                        relevance["relevance"],
+                        relevance["reason"],
                     )
                     continue
 
@@ -340,7 +420,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
             quality_stats.saved_reports = saved_count
 
             crawl_run.status = CrawlRunStatus.success.value
-            crawl_run.found_count = len(articles_by_url)
+            crawl_run.found_count = found_count
             crawl_run.saved_count = saved_count
             crawl_run.error = quality_stats.to_summary()
             crawl_run.finished_at = finished_at.replace(tzinfo=None)
@@ -354,7 +434,7 @@ async def _crawl_source_async(source_id: int) -> dict[str, int | str]:
             return {
                 "status": "success",
                 "source_id": source.id,
-                "found_count": len(articles_by_url),
+                "found_count": found_count,
                 "saved_count": saved_count,
             }
 
@@ -423,7 +503,9 @@ async def _get_due_source_ids() -> list[int]:
     """获取所有启用且已到抓取时间的来源 ID。"""
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(Source).where(
+            select(Source, ThinkTank.key)
+            .join(ThinkTank, ThinkTank.id == Source.think_tank_id)
+            .where(
                 Source.is_active.is_(True),
                 Source.source_type.in_(
                     (
@@ -432,37 +514,70 @@ async def _get_due_source_ids() -> list[int]:
                     )
                 ),
             )
+            .order_by(Source.last_crawled_at.asc().nullsfirst(), Source.id)
         )
 
-        sources = list(result.scalars().all())
+        sources = list(result.all())
 
     now = datetime.now(UTC)
 
     return [
         source.id
-        for source in sources
-        if _is_source_due_for_crawl(
+        for source, key in sources
+        if get_source_rollout_policy(key).can_run_pilot_crawl
+        and _is_source_due_for_crawl(
             source,
             now=now,
         )
     ]
 
 
-def crawl_all_sources() -> int:
-    """
-    抓取所有启用且已到抓取时间的来源。
+def crawl_all_sources() -> dict[str, int | str]:
+    """抓取已准入且到期的来源，返回批次统计。"""
+    return asyncio.run(_crawl_all_sources_async())
 
-    返回新入库报告总数。
-    """
-    source_ids = asyncio.run(_get_due_source_ids())
 
-    saved_count = 0
+async def _crawl_all_sources_async() -> dict[str, int | str]:
+    summary: dict[str, int | str] = {
+        "status": "success",
+        "selected_count": 0,
+        "completed_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "saved_count": 0,
+    }
+    async with crawl_execution_lock() as acquired:
+        if not acquired:
+            return {**summary, "status": "skipped", "reason": "already_running"}
 
-    for source_id in source_ids:
-        try:
-            result = crawl_source(source_id)
-            saved_count += int(result["saved_count"])
-        except Exception as exc:
-            print(f"crawl failed source_id={source_id}: {exc}")
+        source_ids = await _get_due_source_ids()
+        summary["selected_count"] = len(source_ids)
+        for source_id in source_ids:
+            try:
+                result = await _crawl_source_async(source_id, only_if_due=True)
+                if result["status"] == "skipped":
+                    summary["skipped_count"] = int(summary["skipped_count"]) + 1
+                    logger.info(
+                        "Scheduled source crawl skipped: source_id=%s reason=%s",
+                        source_id,
+                        result["reason"],
+                    )
+                else:
+                    summary["completed_count"] = int(summary["completed_count"]) + 1
+                    summary["saved_count"] = int(summary["saved_count"]) + int(result["saved_count"])
+            except Exception as exc:
+                summary["failed_count"] = int(summary["failed_count"]) + 1
+                logger.exception(
+                    "Scheduled source crawl failed: source_id=%s error=%r",
+                    source_id,
+                    exc,
+                )
 
-    return saved_count
+        if summary["failed_count"]:
+            summary["status"] = (
+                "failed"
+                if summary["failed_count"] == summary["selected_count"]
+                else "partial_failure"
+            )
+        logger.info("Scheduled crawl batch finished: %s", summary)
+        return summary

@@ -1,10 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.models.source import SourceTypeEnum
+from app.core.llm_authorization import LLMNotAuthorized, document_hash
+from app.models import CrawlCandidate, CrawlRun, Report, Source, ThinkTank
+from app.models.source import CrawlStatusEnum, SourceTypeEnum
 from app.services import crawler_service
+from app.services.crawl_quality_service import CrawlQualityStats
+from app.services.crawler.report_document_service import ReportDocumentResult
 from app.services.crawler_service import (
     _ensure_source_rollout_allowed,
     _fetch_source_articles,
@@ -244,6 +249,71 @@ async def test_fetch_source_articles_skips_failed_core_site_discovery_url(
     assert [article["url"] for article in articles] == [
         "https://www.aei.org/research-products/report/china-competition"
     ]
+
+
+async def test_fetch_source_articles_preflights_atlantic_council_pdf_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_resource(url: str, **_: object):
+        html = ""
+
+        if url == "https://www.atlanticcouncil.org/":
+            html = """
+<article>
+  <a href="/in-depth-research-reports/report/china-no-pdf/">
+    <h3>China no PDF report</h3>
+  </a>
+  <span>Report</span>
+</article>
+<article>
+  <a href="/in-depth-research-reports/report/china-pdf/">
+    <h3>China PDF report</h3>
+  </a>
+  <span>Report</span>
+</article>
+"""
+        elif url == (
+            "https://www.atlanticcouncil.org/in-depth-research-reports/"
+            "report/china-no-pdf/"
+        ):
+            html = "<main><h1>China no PDF report</h1></main>"
+        elif url == (
+            "https://www.atlanticcouncil.org/in-depth-research-reports/"
+            "report/china-pdf/"
+        ):
+            html = """
+<main>
+  <h1>China PDF report</h1>
+  <a href="/wp-content/uploads/2026/10/china-pdf.pdf">Download PDF</a>
+</main>
+"""
+
+        return SimpleNamespace(
+            content=html.encode("utf-8"),
+            final_url=url,
+            content_type="text/html",
+        )
+
+    monkeypatch.setattr(
+        crawler_service,
+        "fetch_resource",
+        fake_fetch_resource,
+    )
+
+    articles = await _fetch_source_articles(
+        SimpleNamespace(
+            source_type=SourceTypeEnum.website,
+            url="https://www.atlanticcouncil.org/",
+        )
+    )
+
+    assert articles[0]["preflight_skip_reason_code"] == "document_failed"
+    assert articles[0]["preflight_skip_error"] == (
+        "发现阶段预检：报告详情页中未发现 PDF 链接。"
+    )
+    assert articles[1]["pdf_url"] == (
+        "https://www.atlanticcouncil.org/wp-content/uploads/2026/10/china-pdf.pdf"
+    )
 
 
 async def test_fetch_source_articles_uses_csis_analysis_discovery_url(
@@ -536,3 +606,132 @@ async def test_fetch_source_articles_routes_nber_to_search_api(
     assert [article["url"] for article in articles] == [
         "https://www.nber.org/papers/w35539",
     ]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "status", "skip_reason", "related"),
+    [
+        (LLMNotAuthorized("Outbound disabled"), "pending_relevance", None, None),
+        (LLMNotAuthorized("Grant required"), "pending_relevance", None, None),
+        (TimeoutError("Model timeout"), "skipped", "relevance_failed", None),
+        (ValueError("Invalid model JSON"), "skipped", "relevance_failed", None),
+        (
+            {"relevance": "unrelated", "is_china_related": False, "reason": "Other topic"},
+            "skipped",
+            "non_china_related",
+            False,
+        ),
+        (
+            {"relevance": "direct", "is_china_related": True, "reason": "China policy"},
+            "saved",
+            None,
+            True,
+        ),
+    ],
+)
+async def test_candidate_relevance_outcomes_remain_distinct(
+    monkeypatch, outcome, status, skip_reason, related,
+) -> None:
+    source = SimpleNamespace(
+        id=7,
+        think_tank_id=7,
+        is_active=True,
+        source_type=SourceTypeEnum.website,
+    )
+    added = []
+
+    def add(item):
+        item.id = len(added) + 1
+        added.append(item)
+
+    def get(model, _id):
+        if model is Source:
+            return source
+        if model is ThinkTank:
+            return SimpleNamespace(key="rand")
+        assert model is CrawlRun
+        return next(item for item in added if isinstance(item, CrawlRun))
+
+    db = MagicMock()
+    db.__aenter__.return_value = db
+    db.get = AsyncMock(side_effect=get)
+    db.add.side_effect = add
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    db.execute = AsyncMock(return_value=result)
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+    db.flush = AsyncMock()
+    monkeypatch.setattr(crawler_service, "AsyncSessionLocal", lambda: db)
+
+    articles = [
+        {"title": "T" * 510, "url": "https://example.org/report/#top", "published_at": None},
+        {"title": "", "url": "https://example.org/another", "published_at": None},
+    ]
+    document = ReportDocumentResult(
+        page_url=articles[0]["url"],
+        pdf_url="https://example.org/report.pdf",
+        text="China policy report",
+        page_count=24,
+        non_empty_page_count=23,
+        pdf_byte_length=1234,
+    )
+    monkeypatch.setattr(crawler_service, "_fetch_source_articles", AsyncMock(return_value=articles))
+    monkeypatch.setattr(crawler_service, "fetch_report_document", AsyncMock(return_value=document))
+    evaluate = AsyncMock(side_effect=[outcome, LLMNotAuthorized("Grant required")])
+    monkeypatch.setattr(crawler_service, "evaluate_china_relevance", evaluate)
+    notify = AsyncMock()
+    monkeypatch.setattr(crawler_service.notification_service, "create_for_all_active_users", notify)
+    stats = CrawlQualityStats(raw_candidates=2)
+    monkeypatch.setattr(crawler_service, "CrawlQualityStats", lambda **_kwargs: stats)
+
+    response = await crawler_service._crawl_source_locked_async(7, only_if_due=False)
+
+    candidates = [item for item in added if isinstance(item, CrawlCandidate)]
+    assert len(candidates) == 2
+    first, waiting = candidates
+    assert first.status == status
+    assert first.skip_reason_code == skip_reason
+    assert first.is_china_related is related
+    assert waiting.status == "pending_relevance"
+    assert waiting.is_china_related is None
+    assert waiting.relevance is None
+    assert waiting.relevance_reason is None
+    assert waiting.skip_reason_code is None
+    assert waiting.skip_reason_label is None
+    assert waiting.error == "Grant required"
+    assert first.title == "T" * 500
+    assert evaluate.await_count == 2
+    for candidate, call in zip(candidates, evaluate.await_args_list, strict=True):
+        assert call.args == (candidate.title or "", document.text)
+        assert call.kwargs == {"source_id": source.id, "normalized_url": candidate.normalized_url}
+        assert candidate.document_hash == document_hash(*call.args)
+        assert candidate.content_length == len(document.text)
+        assert candidate.page_count == 24
+
+    saved_count = int(status == "saved")
+    reports = [item for item in added if isinstance(item, Report)]
+    assert len(reports) == saved_count
+    assert notify.await_count == saved_count
+    assert response == {
+        "status": "success", "source_id": 7, "found_count": 2, "saved_count": saved_count,
+    }
+    run = next(item for item in added if isinstance(item, CrawlRun))
+    assert run.status == "success"
+    assert run.finished_at is not None
+    assert source.last_crawl_status == CrawlStatusEnum.success
+    assert source.last_error is None
+    assert db.commit.await_count == 2
+    assert stats.pending_relevance == 1 + int(status == "pending_relevance")
+    assert stats.relevance_failed == int(skip_reason == "relevance_failed")
+    assert stats.non_china_related == int(skip_reason == "non_china_related")
+    assert stats.document_failed == 0
+    assert f"待授权 {stats.pending_relevance} 条" in run.error
+    if status == "pending_relevance":
+        assert first.error == str(outcome)
+        assert first.skip_reason_label is None
+        assert first.relevance is None
+        assert first.relevance_reason is None
+        assert "失败" not in run.error
+        assert "非涉华" not in run.error
+        assert "跳过" not in run.error

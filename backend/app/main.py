@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.dashboard import router as dashboard_router
+from app.api.v1.llm_authorizations import router as llm_authorizations_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.sources import router as sources_router
@@ -78,6 +79,12 @@ app.include_router(
     dashboard_router,
     prefix=f"{settings.API_V1_STR}/dashboard",
     tags=["Dashboard"],
+)
+
+app.include_router(
+    llm_authorizations_router,
+    prefix=f"{settings.API_V1_STR}/llm-authorizations",
+    tags=["LLM Authorizations"],
 )
 
 # ---------------------------------------------------------------------------

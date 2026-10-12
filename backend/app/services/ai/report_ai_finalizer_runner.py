@@ -4,9 +4,12 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+from app.core.config import settings
 from app.core.llm import SiliconFlowClient
+from app.core.llm_authorization import LLMNotAuthorized
 from app.core.status import NotificationEventType, ReportAIStatus
 from app.db.session import AsyncSessionLocal
+from app.models.report import Report
 from app.models.user import RoleEnum
 from app.services.ai.report_ai_finalizer import (
     DEFAULT_MAX_FINALIZATION_RETRIES,
@@ -20,6 +23,8 @@ from app.services.ai.report_ai_service import (
     generate_summary_from_notes,
 )
 from app.services.notification_service import notification_service
+from app.services.report_error_summary import summarize_report_processing_error
+from app.utils.datetime import utc_now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +190,9 @@ async def run_report_ai_finalization(
         新事务写入最终结果或失败状态。
     """
 
+    if not settings.LLM_OUTBOUND_ENABLED:
+        return ReportAIFinalizationRunResult(report_id, "blocked", error="LLM 外发总开关已关闭。")
+
     # ============================================================
     # 第一阶段：claim + 准备脱离数据库的输入
     # ============================================================
@@ -222,6 +230,9 @@ async def run_report_ai_finalization(
             # 才能释放 DB 后调用模型。
             await db.commit()
 
+        except LLMNotAuthorized as exc:
+            await db.rollback()
+            return ReportAIFinalizationRunResult(report_id, "blocked", error=str(exc))
         except Exception:
             await db.rollback()
 
@@ -240,7 +251,7 @@ async def run_report_ai_finalization(
     commentary: str | None = None
 
     try:
-        async with SiliconFlowClient() as client:
+        async with SiliconFlowClient(authorization=execution_input.authorization) as client:
             output_result = (
                 await _generate_final_report_outputs(
                     client,
@@ -261,6 +272,9 @@ async def run_report_ai_finalization(
             commentary = output_result.commentary
 
             if output_result.errors:
+                denied = next((error for error in output_result.errors if isinstance(error, LLMNotAuthorized)), None)
+                if denied is not None:
+                    raise denied
                 first_error = output_result.errors[0]
                 raise RuntimeError(
                     "报告最终摘要/评论生成失败: "
@@ -268,6 +282,14 @@ async def run_report_ai_finalization(
                     f"{first_error}"
                 ) from first_error
 
+    except LLMNotAuthorized as exc:
+        async with AsyncSessionLocal() as db:
+            report = await db.get(Report, report_id, with_for_update=True)
+            if report is not None and report.ai_status == ReportAIStatus.finalizing.value:
+                report.ai_status = ReportAIStatus.pending.value
+                report.updated_at = utc_now_naive()
+                await db.commit()
+        return ReportAIFinalizationRunResult(report_id, "blocked", error=str(exc))
     except Exception as exc:
         logger.exception(
             "Report finalization generation failed: "
@@ -319,7 +341,11 @@ async def run_report_ai_finalization(
                         roles={RoleEnum.admin},
                         event_type=NotificationEventType.report_ai_failed.value,
                         title="报告 AI 处理失败，请处理",
-                        message=f"{failed_report.title}: {str(exc)[:1000]}",
+                        message=(
+                            f"{failed_report.title}\n\n"
+                            "失败原因："
+                            f"{summarize_report_processing_error(str(exc), operation='ai')}"
+                        ),
                         report_id=failed_report.id,
                     )
 

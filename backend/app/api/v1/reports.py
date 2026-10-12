@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_roles
 from app.core.content_kind import ReportContentKind
+from app.core.llm_authorization import LLMNotAuthorized, report_context
 from app.core.status import ReportAIStatus, ReportCrawlStatus, ReportReviewStatus
 from app.db.session import get_db
 from app.models.user import RoleEnum, User
@@ -25,6 +26,7 @@ from app.schemas.report import (
 )
 from app.services import report_service
 from app.services.ai.report_ai_chunk_service import get_report_ai_progress
+from app.services.llm_authorization_service import require_authorization
 from app.services.report_export_service import (
     build_export_filename,
     build_report_docx,
@@ -375,6 +377,11 @@ async def retry_report_ai(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"报告 {report_id} 的 AI 任务正在处理中，请勿重复提交。",
         )
+
+    try:
+        await require_authorization(db, report_context(report))
+    except LLMNotAuthorized as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     previous_review_status = report.review_status
     report.ai_status = ReportAIStatus.pending.value
