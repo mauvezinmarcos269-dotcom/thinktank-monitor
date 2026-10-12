@@ -1,3 +1,5 @@
+from collections import Counter
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,7 @@ from app.services.crawl_candidate_service import (
     get_candidate_status_label,
     get_skip_reason_label,
 )
+from app.services.crawl_error_summary import summarize_crawl_error
 from app.services.source_service import source_service
 
 
@@ -119,7 +122,7 @@ class DashboardService:
                 source_id=source.id,
                 think_tank_name=think_tank_name,
                 url=source.url,
-                last_error=source.last_error,
+                last_error=summarize_crawl_error(source.last_error),
                 last_crawled_at=source.last_crawled_at,
             )
             for source, think_tank_name in rows
@@ -142,17 +145,20 @@ class DashboardService:
                 select(
                     CrawlCandidate.skip_reason_code,
                     CrawlCandidate.skip_reason_label,
-                    func.count(CrawlCandidate.id),
+                    CrawlCandidate.error,
                 )
                 .where(CrawlCandidate.skip_reason_code.is_not(None))
-                .group_by(
-                    CrawlCandidate.skip_reason_code,
-                    CrawlCandidate.skip_reason_label,
-                )
-                .order_by(func.count(CrawlCandidate.id).desc())
-                .limit(8)
             )
         ).all()
+        reason_counts: Counter[tuple[str | None, str]] = Counter()
+
+        for reason_code, reason_label, error in reason_rows:
+            display_label = get_skip_reason_label(
+                reason_code,
+                error=error,
+                stored_label=reason_label,
+            )
+            reason_counts[(reason_code, display_label)] += 1
 
         return DashboardCrawlCandidates(
             total=int(total or 0),
@@ -167,10 +173,13 @@ class DashboardService:
             by_skip_reason=[
                 CrawlCandidateCountRead(
                     code=reason_code,
-                    label=reason_label or get_skip_reason_label(reason_code),
-                    count=int(count),
+                    label=reason_label,
+                    count=count,
                 )
-                for reason_code, reason_label, count in reason_rows
+                for (reason_code, reason_label), count in sorted(
+                    reason_counts.items(),
+                    key=lambda item: (-item[1], item[0][1]),
+                )[:8]
             ],
         )
 
