@@ -64,12 +64,14 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 来源分层和数据治理口径见 [docs/source-governance.md](docs/source-governance.md)。
 部署、定时任务、提醒和备份维护见
 [docs/deployment-maintenance.md](docs/deployment-maintenance.md)，其中包含老师本地电脑长期运行的推荐方案。
-老师日常使用说明见 [docs/teacher-local-user-guide.md](docs/teacher-local-user-guide.md)。
+老师日常使用说明见 [docs/teacher-local-user-guide.md](docs/teacher-local-user-guide.md)，
+本地启动验收与常见故障分流见
+[docs/teacher-local-startup-checklist.md](docs/teacher-local-startup-checklist.md)。
 老师本地电脑可优先使用 `scripts/teacher-local-start.ps1`、
 `scripts/teacher-local-stop.ps1`、`scripts/teacher-local-status.ps1`、
 `scripts/teacher-local-health.ps1`、`scripts/teacher-local-backup.ps1`
 、`scripts/teacher-local-restore.ps1` 和 `scripts/teacher-local-update.ps1`
-管理服务。
+管理服务；遇到问题时可用 `scripts/teacher-local-diagnostics.ps1` 导出诊断包。
 
 ## 本地联调
 
@@ -79,24 +81,32 @@ ThinkTank Monitor 是一个面向智库研究报告的实时监测、采集、�
 在三个 PowerShell 窗口分别运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
 ```
 
 默认地址：
 
-- 后端：`http://127.0.0.1:8001`
+- 后端：`http://127.0.0.1:8000`
 - 前端：`http://localhost:3001`
 - Redis：`redis://127.0.0.1:6379/0`
 - 本地 Celery 队列：`thinktank-local-codex`
 - 本地 Celery 结果库：`redis://127.0.0.1:6379/1`
+
+本地联调脚本会自动注入：
+
+- `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`
+- `BACKEND_CORS_ORIGINS` 同时允许 `localhost/127.0.0.1` 的 `3000` 和 `3001`
+
+如果不通过脚本、而是直接在 `frontend` 目录运行 `npm run dev`，请确认
+`frontend/.env.local` 与 `frontend/.env.local.example` 保持一致。
 
 如果 Docker worker 正在运行，它默认只消费 `celery` 队列；
 本地后端和本地 worker 默认使用 `thinktank-local-codex` 队列，
@@ -105,8 +115,8 @@ powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
 如果你怀疑还有旧 worker 在同一个 Redis 上运行，可以显式指定队列：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1 -Queue thinktank-local-codex
-powershell -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1 -Queue thinktank-local-codex
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1 -Queue thinktank-local-codex
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1 -Queue thinktank-local-codex
 ```
 
 本地手动执行后端诊断、爬虫或 AI 运维命令时，不要直接在 `backend`
@@ -114,13 +124,13 @@ powershell -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1 -Queue t
 主机名。统一通过包装脚本注入本地 Redis 和 Celery 队列配置：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 poetry run python -m app.scripts.pilot_crawl_sources --help
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 poetry run python -m app.scripts.pilot_crawl_sources --help
 ```
 
 如需让手动命令投递到现有 Docker worker 消费的 `celery` 队列，可显式传入：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python -m app.scripts.pilot_crawl_sources --help
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 -Queue celery poetry run python -m app.scripts.pilot_crawl_sources --help
 ```
 
 ### 前端构建注意事项
@@ -132,7 +142,7 @@ Next.js 的开发服务和生产构建都会写入 `frontend/.next`。
 需要做生产构建检查时，先停止前端开发服务，再运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-local-frontend.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local-frontend.ps1
 ```
 
 或：

@@ -1,6 +1,6 @@
 # 老师本地使用指南
 
-更新时间：2026-09-29
+更新时间：2026-10-11
 
 本文面向日常使用者，尽量不涉及开发细节。平台部署在老师本地电脑后，老师主要通过浏览器使用。
 
@@ -9,8 +9,10 @@
 打开 PowerShell，进入项目目录后运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1
 ```
+
+这里统一使用 `-NoProfile`，避免老师电脑上的 PowerShell 个人启动脚本或 Conda 初始化报错干扰平台脚本判断。
 
 启动完成后，在浏览器打开：
 
@@ -21,21 +23,24 @@ http://localhost:3000
 如果需要查看服务是否正常运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
 ```
 
 如果页面异常、报告长时间不生成，或维护者要求检查服务：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
 ```
+
+完整启动验收和常见故障分流见
+[老师本地启动验收清单](teacher-local-startup-checklist.md)。
 
 ## 二、日常停止
 
 不使用平台时，可运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
 ```
 
 停止服务不会删除数据库和历史报告。
@@ -114,7 +119,7 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
 可运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
 ```
 
 备份文件建议放到移动硬盘、学院网盘或加密云盘，不要只保存在同一台电脑上。
@@ -126,12 +131,31 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
 如果维护者已经推送了新版本，可运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
 ```
 
 这个脚本会先备份当前数据，再拉取代码、重建服务、执行数据库迁移并做健康检查。
 
 ## 八、遇到问题时记录什么
+
+先按 [老师本地启动验收清单](teacher-local-startup-checklist.md)
+排查 Docker、端口、后端和 worker 四类常见问题。
+
+如果健康检查出现 `Docker pipe`、`permission denied`、`dockerDesktopLinuxEngine`
+等提示，通常不是平台代码问题，而是当前 Windows 用户暂时没有访问 Docker
+Desktop 的权限。建议按顺序处理：
+
+1. 先打开 Docker Desktop，等待它完全启动。
+2. 关闭当前 PowerShell，重新打开 PowerShell 后再运行健康检查。
+3. 如果仍失败，请维护者用管理员 PowerShell 执行
+   `net localgroup docker-users "$env:USERNAME" /add`，然后注销 Windows
+   并重新登录。
+
+修复后重新运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
+```
 
 请记录：
 
@@ -142,3 +166,11 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
 - 是否刚刚启动、停止或重建过服务
 
 这些信息可以帮助维护者更快定位问题。
+
+如果维护者要求导出诊断包，可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-diagnostics.ps1
+```
+
+生成的压缩包位于 `local-diagnostics/`，默认不包含 `.env` 密钥文件。

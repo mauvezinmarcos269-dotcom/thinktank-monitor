@@ -7,17 +7,22 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+. (Join-Path $PSScriptRoot "teacher-local-docker.ps1")
+
+Write-Host "Creating ThinkTank Monitor backup..."
+Assert-TeacherLocalDockerReady
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $backupRoot = Join-Path $repoRoot $OutputRoot
 $backupDir = Join-Path $backupRoot $timestamp
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-
-Write-Host "Creating ThinkTank Monitor backup..."
 Write-Host "Backup directory: $backupDir"
 
 $dbBackup = Join-Path $backupDir "postgres-thinktank-monitor.sql"
 docker compose exec -T postgres pg_dump -U thinktank -d thinktank_monitor | Out-File -FilePath $dbBackup -Encoding utf8
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $dbBackup) -or (Get-Item -LiteralPath $dbBackup).Length -eq 0) {
+    throw "PostgreSQL backup failed or produced an empty file."
+}
 Write-Host "Database backup written: $dbBackup"
 
 $envBackupDir = Join-Path $backupDir "env"
@@ -38,9 +43,12 @@ if (-not $SkipMinio) {
     if ($minioContainer) {
         $minioBackupDir = Join-Path $backupDir "minio-data"
         docker cp "${minioContainer}:/data" $minioBackupDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "MinIO backup failed."
+        }
         Write-Host "MinIO data copied: $minioBackupDir"
     } else {
-        Write-Host "MinIO container not found; skipped MinIO backup."
+        throw "MinIO container not found. Use -SkipMinio only after explicitly deciding to omit its backup."
     }
 } else {
     Write-Host "MinIO backup skipped by request."

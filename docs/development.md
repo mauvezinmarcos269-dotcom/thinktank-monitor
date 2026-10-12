@@ -53,7 +53,7 @@ id: Mapped[int] = mapped_column(
 `redis` 主机名：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 poetry run python -m app.scripts.pilot_crawl_sources --help
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 poetry run python -m app.scripts.pilot_crawl_sources --help
 ```
 
 包装脚本默认使用本地隔离队列 `thinktank-local-codex`；如果确认要投递给
@@ -61,6 +61,26 @@ powershell -ExecutionPolicy Bypass -File scripts/run-local-backend-command.ps1 p
 小批量真实入库试运行只应使用 `source-rollout-status.md` 中已放行的
 `pilot_crawl` 来源；默认 keys 保持在已验证的 Brookings、CFR、PIIE，
 不要把 `blocked` 或尚未完成复核的来源直接放入默认命令。
+
+## 本地端口口径
+
+本地默认端口与老师日常 Docker 运行保持一致，避免直接启动前端时请求到空端口：
+
+- 老师日常 / Docker：前端 `3000`，后端 `8000`。
+- 开发联调脚本：前端 `3001`，后端默认 `8000`，Celery 队列
+  `thinktank-local-codex`。
+
+`scripts/start-local-frontend.ps1` 会把前端 API 地址设置为
+`http://127.0.0.1:8000`；`scripts/start-local-backend.ps1` 会同时允许
+`3000` 和 `3001` 的 CORS 来源。若直接运行 `npm run dev`，请确认
+`frontend/.env.local` 参考 `frontend/.env.local.example` 指向 `8000`。
+
+如需避开正在运行的 Docker 后端，可显式使用隔离端口：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1 -Port 8001
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1 -BackendPort 8001
+```
 
 ## 抓取与候选报告
 

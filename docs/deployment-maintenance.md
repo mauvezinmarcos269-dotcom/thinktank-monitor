@@ -5,7 +5,9 @@
 本文用于把平台从本地开发推进到可长期运行的监测系统。当前建议先采用
 “小批量、可复核、可回退”的部署策略，确认报告质量和提醒频率后，再扩大来源范围。
 
-老师日常使用说明见 [teacher-local-user-guide.md](teacher-local-user-guide.md)。
+老师日常使用说明见 [teacher-local-user-guide.md](teacher-local-user-guide.md)，
+本地启动验收与故障分流见
+[teacher-local-startup-checklist.md](teacher-local-startup-checklist.md)。
 
 ## 一、部署组件
 
@@ -77,40 +79,50 @@
 建议日常启动方式：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1
 ```
 
 首次部署或更新代码后需要重建镜像时：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1 -Build
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1 -Build
 ```
 
 建议日常停止方式：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
 ```
 
 建议查看运行状态：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
 ```
 
 建议健康检查：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-health.ps1
 ```
+
+健康检查失败时，按
+[老师本地启动验收清单](teacher-local-startup-checklist.md)
+先区分 Docker 未启动或权限不足、端口占用、后端未响应、worker 未响应。
+2026-10-11 教师端脚本与文档总体验收记录见
+[teacher-local-acceptance-20261011.md](teacher-local-acceptance-20261011.md)。
 
 维护者推送新版本后，老师电脑可一键更新：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-update.ps1
 ```
 
-这个脚本默认会先备份，再拉取代码、重建服务、执行数据库迁移并运行健康检查。若只想重建当前目录代码，不执行 `git pull`，可加 `-SkipPull`。
+这个脚本默认先备份并停止旧应用进程，再拉取代码、构建镜像、执行数据库迁移，最后启动新进程并运行健康检查。若只想使用当前目录代码、不执行 `git pull`，可加 `-SkipPull`。
+
+2026-10-05 已调整更新脚本顺序：备份后先停止旧 Beat/API，再等待旧 Worker 停止并检查 Celery 队列；随后拉取代码、构建镜像、用一次性后端容器迁移并核对 Alembic head 和外发关闭状态，最后启动新版进程并做健康检查。脚本遇到迁移、队列或配置检查失败会停止在启动新版进程之前。正式切换仍需先确认维护窗口和备份，详见 [llm-authorization-deployment-acceptance-20261005.md](llm-authorization-deployment-acceptance-20261005.md)。
+
+同日已按此流程完成首轮正式切换。健康检查会等待 API 和前端就绪，避免容器刚启动时的短暂连接关闭被误判为部署失败。
 
 建议查看后台日志：
 
@@ -120,10 +132,18 @@ docker compose logs -f celery-worker
 docker compose logs -f celery-beat
 ```
 
+需要远程排查时，可导出诊断包：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-diagnostics.ps1
+```
+
+诊断包默认保存到 `local-diagnostics/`，包含容器状态、近期日志、健康检查结果和 Git 版本信息，不包含 `.env` 文件。
+
 如果希望开机后自动运行，可在 Windows 任务计划程序中创建任务，登录后执行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "C:\path\to\thinktank-monitor\scripts\teacher-local-start.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\path\to\thinktank-monitor\scripts\teacher-local-start.ps1"
 ```
 
 其中 `C:\path\to\thinktank-monitor` 替换为老师电脑上的项目目录。
@@ -133,9 +153,9 @@ powershell -ExecutionPolicy Bypass -File "C:\path\to\thinktank-monitor\scripts\t
 本地联调：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1
-powershell -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1
-powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
 ```
 
 Docker 启动：
@@ -167,16 +187,22 @@ docker compose logs -f celery-beat
 
 ## 五、定时任务
 
-`celery-beat` 当前调度：
+仓库中的 `celery-beat` 调度配置（2026-10-04 已修改代码，现有运行进程尚未重启验收）：
 
 | 任务 | 时间 | 用途 |
 | --- | --- | --- |
-| `crawl.all_sources` | 每天 18:00 | 抓取到期来源 |
+| `crawl.all_sources` | 每 5 分钟 | 检查已准入且到期的启用来源，仍按各来源原有间隔抓取 |
 | `report.enqueue_ai_chunk_tasks` | 每 5 分钟 | 将 pending 报告投递给 AI 分块处理 |
 | `notification.daily_summary` | 每天 19:00 | 生成每日通知摘要 |
 
 注意：
 
+- 到期检查周期不等于网站访问周期；当前来源的 `1440` 分钟配置没有被批量修改。
+- 轮询消息 300 秒后过期，避免积压后反复补跑；批次互斥，同源的定时、手动和受控试写也共用 PostgreSQL 事务锁。不同来源可独立执行。
+- 锁由独立数据库连接持有，直到抓取结束，业务提交不会提前释放；进程断开后由 PostgreSQL 释放。后续任务拿到来源锁并通过到期检查后，可将中断遗留的运行记录标为失败，再建立新记录。
+- 批次结果包含 `selected_count`、`completed_count`、`skipped_count`、`failed_count` 和 `saved_count`。`partial_failure` / `failed` 需排查；Celery 任务正常返回不代表每个来源都成功。
+- 启用新版前须另行获准：暂停投递并等待旧抓取和试写结束，统一加载新版 Worker，再加载新版 Beat；不要混用不带锁的旧执行进程与新执行进程。本轮没有执行任何停止或重启操作。
+- 新轮询启用后可能立即处理已到期来源，并由既有 AI 调度接续处理新报告；实际启用前需同时确认采集与自动 AI 的边界。
 - `pilot_crawl` 只表示允许小批量试运行，不等于全量自动化。
 - 新增来源前必须先完成只读审计和人工复核。
 - `blocked` 来源不得加入默认入库试运行命令。
@@ -215,14 +241,14 @@ docker compose logs -f celery-beat
 PostgreSQL 备份示例：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1
 ```
 
 备份默认保存到 `local-backups/`，该目录已加入 `.gitignore`，不会被提交到代码仓库。
 如果 MinIO 数据较大，可临时跳过 MinIO：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1 -SkipMinio
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1 -SkipMinio
 ```
 
 恢复前必须先备份当前库，避免误覆盖。
@@ -230,7 +256,7 @@ powershell -ExecutionPolicy Bypass -File scripts/teacher-local-backup.ps1 -SkipM
 需要从备份恢复时，使用：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-restore.ps1 -BackupDir local-backups\YYYYMMDD-HHMMSS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-restore.ps1 -BackupDir local-backups\YYYYMMDD-HHMMSS
 ```
 
 恢复脚本会要求输入 `RESTORE` 二次确认，并默认先为当前状态再做一份安全备份。

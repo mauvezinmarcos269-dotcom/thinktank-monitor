@@ -9,10 +9,10 @@ def parse_cors_origins(value: str | list[str]) -> list[str]:
     支持以下两种 CORS 配置形式：
 
     1. 逗号分隔字符串：
-       BACKEND_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+       BACKEND_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
 
     2. JSON 数组：
-       BACKEND_CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+       BACKEND_CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000","http://localhost:3001","http://127.0.0.1:3001"]
     """
     if not isinstance(value, str):
         return value
@@ -75,11 +75,14 @@ class Settings(BaseSettings):
 
     BACKEND_CORS_ORIGINS: CorsOrigins = [
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     ]
 
+    LLM_OUTBOUND_ENABLED: bool = False
     LLM_PROVIDER: str = "openai_compatible"
     LLM_BASE_URL: str = ""
-    LLM_OUTBOUND_ENABLED: bool = False
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
     LLM_CONNECT_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0)

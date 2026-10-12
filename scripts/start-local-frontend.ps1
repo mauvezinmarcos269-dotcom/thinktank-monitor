@@ -1,6 +1,6 @@
 param(
     [int]$Port = 3001,
-    [int]$BackendPort = 8001
+    [int]$BackendPort = 8000
 )
 
 $ErrorActionPreference = "Stop"

@@ -39,16 +39,16 @@ frontend:
 	cd frontend && npm run dev
 
 local-backend:
-	powershell -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-backend.ps1
 
 local-worker:
-	powershell -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-worker.ps1
 
 local-frontend:
-	powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-frontend.ps1
 
 local-frontend-build:
-	powershell -ExecutionPolicy Bypass -File scripts/build-local-frontend.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local-frontend.ps1
 
 migrate:
 	cd backend && poetry run alembic upgrade head

@@ -10,6 +10,13 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+. (Join-Path $PSScriptRoot "teacher-local-docker.ps1")
+
+if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
+    Write-Host "Backup directory not found: $BackupDir" -ForegroundColor Red
+    Write-Host "Use a folder created by scripts\teacher-local-backup.ps1, for example local-backups\YYYYMMDD-HHMMSS."
+    exit 1
+}
 
 $resolvedBackupDir = Resolve-Path -LiteralPath $BackupDir -ErrorAction Stop
 $backupPath = $resolvedBackupDir.Path
@@ -19,7 +26,10 @@ $rootEnvBackup = Join-Path $backupPath "env\root.env"
 $backendEnvBackup = Join-Path $backupPath "env\backend.env"
 
 if (-not (Test-Path -LiteralPath $dbBackup)) {
-    throw "Database backup not found: $dbBackup"
+    Write-Host "Database backup not found: $dbBackup" -ForegroundColor Red
+    Write-Host "Expected file name: postgres-thinktank-monitor.sql"
+    Write-Host "Restore stopped before touching Docker or the current database."
+    exit 1
 }
 
 Write-Host "ThinkTank Monitor restore"
@@ -33,6 +43,8 @@ if ($RestoreEnv) {
     Write-Host "This operation will restore .env files from the backup."
 }
 Write-Host ""
+
+Assert-TeacherLocalDockerReady
 
 $confirmation = Read-Host "Type RESTORE to continue"
 if ($confirmation -ne "RESTORE") {

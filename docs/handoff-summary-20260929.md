@@ -58,25 +58,25 @@
 启动：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1
 ```
 
 首次部署或更新后重建：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1 -Build
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-start.ps1 -Build
 ```
 
 查看状态：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-status.ps1
 ```
 
 停止：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/teacher-local-stop.ps1
 ```
 
 浏览器访问：
